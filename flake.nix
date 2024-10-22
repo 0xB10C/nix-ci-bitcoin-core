@@ -51,6 +51,7 @@
           modules = [
             disko.nixosModules.disko
             sops-nix.nixosModules.sops
+            ./base.nix
             ./runner.nix
             {
               config._module.args = {
