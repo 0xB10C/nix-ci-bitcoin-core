@@ -60,9 +60,28 @@
             }
           ];
         };
+        
+      mkCache =
+        name: arch:
+        nixpkgs.lib.nixosSystem {
+          system = arch;
+          modules = [
+            disko.nixosModules.disko
+            sops-nix.nixosModules.sops
+            ./base.nix
+            ./cache.nix
+            {
+              config._module.args = {
+                inherit name arch;
+              };
+            }
+          ];
+        };
     in
     {
       nixosConfigurations = {
+        cache = mkCache "cache" x86_64;
+        
         runner01 = mkRunner "runner01" runnerType.small x86_64;
         runner02 = mkRunner "runner02" runnerType.medium x86_64;
         runner03 = mkRunner "runner03" runnerType.arm64 arm64;

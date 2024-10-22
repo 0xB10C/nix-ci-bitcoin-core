@@ -8,6 +8,7 @@ keys:
   - &user_will  67aa5b46e7af78053167fe343b8f814a784218f8
 
   # age pubkeys generated from the SSH host keys for each host
+  - &cache      age1y0v0ksz7gxtxg3w8asj4e5mspry3g22eqez0jec3q4nn4lpvp50qg6jc53
   - &runner01   age1t2ww0fg5euxmakper4zsw8hvtdvcxfd5r0avgvw5z9dvlspeh32qx4prl9
   - &runner02   age1y5rueswq0f0dq2h2c2q76dlc77u443n5hhamk9yjgejzjf422pnq5s64y4
   - &runner03   age1smfgtkwz0u5drvsqj2tkvlvm2g6aaq78efwsmc3u6j7rtnjndvjszc4muc
@@ -20,6 +21,14 @@ creation_rules:
       - *user_b10c
       - *user_will
 
+  - path_regex: sops/cache\.yaml
+    key_groups:
+    - pgp:
+      - *user_b10c
+      - *user_will
+      age:
+      - *cache
+      
   # one rule for each runner
   - path_regex: sops/runner01\.yaml
     key_groups:
