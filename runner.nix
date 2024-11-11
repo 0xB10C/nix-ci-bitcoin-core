@@ -45,6 +45,13 @@ in
           path = "${CIRRUS_WORKER_HOME}/cirrus.env";
           restartUnits = [ "cirrus-worker.service" ];
         };
+        "ccache.conf" = {
+          mode = "0400";
+          owner = config.users.users.cirrus-worker.name;
+          group = config.users.groups.cirrus-worker.name;
+          path = "/etc/ccache.conf";
+          restartUnits = [ "cirrus-worker.service" ];
+        };
       }
     else
       { };
@@ -77,10 +84,22 @@ in
           pkgs.docker
           pkgs.python3
           pkgs.git
+          pkgs.podman
         ]
       );
       DOCKER_HOST = "unix:///var/run/docker.sock";
       RESTART_CI_DOCKER_BEFORE_RUN = "1";
+      CCACHE_CONFIGPATH = "/etc/ccache.conf";
+    };
+  };
+
+  services.nginx = {
+    enable = true;
+    virtualHosts."127.0.0.1:8000" = {
+      listen = [{ addr = "127.0.0.1"; port = 8000; }];
+      locations."/" = {
+        proxyPass = "https://test-ccache-bitcoin-core-ci.b10c.me/";
+      };
     };
   };
 

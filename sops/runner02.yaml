@@ -1,4 +1,5 @@
 cirrus.env: ENC[AES256_GCM,data:/svuHrz+Hz6Qgn0EbeQiU0EGiZH5NgH7HTnMmVScZRcsTvYP8lMtJ22e2y7y8PZAszIZfaRhvBpOinMmWvSMxucvteXqqAkKwAJhVuI3JvqUgDNiev21v3j0c8ixZtQ1xVliQvqmAbzEEaGgwkAsnHzkNSM=,iv:wQu24uJmpcTPoH0st8HG7GKBnaUzKH3dKDiMZgw2OdQ=,tag:p29Bh8IvwOsuzJHiz9GWwg==,type:str]
+ccache.conf: ENC[AES256_GCM,data:NsxhK8oyAC+k8HYNll2tUNIaSAG2DrOe+HjGGMvs6wJJoW6cm3eJy+4dyP9vXHYIRwutycmfrIu1/Om8JqhMUwh9rjLmESD9F6tWTiXzSuUe81R1IIr5AmeDkR5mdfHR1rQyqC8OcBCcuTKKp+ZJ2h7hecnTJ0KzXSh2EPwVE71P4815/8935ySnpW/qltsI0z80d5euRk01K/AHA+u8oCQvbG879IGlqQi/d6BCOlpV,iv:BW5slJmO3wzGh9zW/QfmECXQwiVHdpmVSGuFTvQ3qS0=,tag:z9v/25hZVdBsmZDm3HElew==,type:str]
 sops:
     kms: []
     gcp_kms: []
@@ -14,8 +15,8 @@ sops:
             Z0E4akdOTmtvOCtuYjA4YlQzc242TlEKDOxMsevNjSot7m1fMVoNXP6+V7zROeU2
             hUaAdxWznHtwnGF21P3xAqOLzF0VQZ8MEjVKRQj75H+mLf4lemDtpw==
             -----END AGE ENCRYPTED FILE-----
-    lastmodified: "2024-10-20T21:54:00Z"
-    mac: ENC[AES256_GCM,data:w3O8/BB9bynuoktSjFv6kj9SfmQmZxEkt3+zasbBip+IQhAGf/g/sjHN64OYdadk4WdNc+1H2Ai9+UjpwKLJQkLv7YZbrdgOc7tMP8z+yoBvVWzy7DGr1nUCNn2iRy4Wcyul65SQAYDIgok6QaBHcT0mbef4+T53PxmmmwytzYs=,iv:ZG63GoU5LvfsjtdHCHimvQJ9tljN3dCBnED7xgXNVGQ=,tag:4L7hYJvXh/8sA8MEH517ZQ==,type:str]
+    lastmodified: "2024-10-22T17:14:12Z"
+    mac: ENC[AES256_GCM,data:8LEpbyhW0oEVCH7/laCOBRuXGe+6aghiZxzCRNOXa1jqYSM3x6Vt8XmkBnEf/gz0C7hhb1EUPzu6xJ+PKcEHkrzWBw+vrS+y7YiIH1PGlBCmQcajGmedo5tsvIMEb2YjUXIXZ7HUTxtcKDL+g/8ssOmqllTU4dce5xGz6bBJ/b0=,iv:CkqvRUBI8UejV0qCXGF5E6NsWEkH7vI+4gPTY45C8FM=,tag:uNk0uCnbKKKJDca+Stgn6w==,type:str]
     pgp:
         - created_at: "2024-10-20T22:46:58Z"
           enc: |-

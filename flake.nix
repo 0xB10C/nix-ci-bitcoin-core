@@ -83,7 +83,7 @@
         cache = mkCache "cache" x86_64;
         
         runner01 = mkRunner "runner01" runnerType.small x86_64;
-        runner02 = mkRunner "runner02" runnerType.medium x86_64;
+        runner02 = mkRunner "runner02" runnerType.small x86_64;
         runner03 = mkRunner "runner03" runnerType.arm64 arm64;
       };
 
