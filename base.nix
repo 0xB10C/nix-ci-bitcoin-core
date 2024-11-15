@@ -5,6 +5,10 @@
   pkgs,
   ...
 }:
+
+let
+  ccacheDir = "/var/lib/ccache";
+in
 {
   imports = [
     (modulesPath + "/installer/scan/not-detected.nix")
@@ -43,6 +47,48 @@
   systemd.tmpfiles.rules = [
     "d /var/ccache 0755 root root -"
   ];
+
+  # TODO: set correct interface
+  networking.firewall.allowedTCPPorts = [ 80 ];
+
+  services.nginx = {
+    enable = true;
+    virtualHosts."ccache" = {
+      listen = [
+        {
+          addr = "10.0.0.1";
+          port = 80;
+        }
+      ];
+      locations."/cache/" = {
+        # based on https://github.com/ccache/ccache/wiki/HTTP-storage#nginx
+        extraConfig = ''
+          # Where to store cache files (must exist with proper file permissions already):
+          alias ${ccacheDir};
+
+          # Don't log 404 Not Found replies as errors.
+          log_not_found off;
+
+          # Enable needed HTTP methods:
+          dav_methods PUT DELETE;
+
+          # Allow creating subdirectories:
+          create_full_put_path on;
+
+          # Allow individual cache entries to be up to 100 MiB:
+          client_max_body_size 100M;
+        '';
+      };
+    };
+  };
+
+  system.activationScripts = {
+    ccacheDir = ''
+      mkdir -p ${ccacheDir}
+      chown nginx:nginx ${ccacheDir}
+      chmod 700 ${ccacheDir}
+    '';
+  };
 
   nix.settings = {
     experimental-features = [ "nix-command" "flakes" ];
