@@ -1,7 +1,18 @@
 { pkgs, lib, config, ... }:
 let 
   cfg = config.services.cirrus-runner;
-  CONFIG_FILE_PATH = "/var/lib/cirrus-worker/worker.yml"; 
+  CONFIG_FILE_PATH = "/var/lib/cirrus-worker/worker.yml";
+
+  patched-cirrus-cli = pkgs.cirrus-cli.overrideAttrs (oldAttrs: rec {
+    version = "9885ae3dadc5b8656c8e1d5e61b7de5020510d88";
+    src = pkgs.fetchFromGitHub {
+      owner = "0xb10c";
+      repo = "cirrus-cli";
+      rev = "a8d7ba7b20a11f22008d9b53b41858fad93fdc7c";
+      sha256 = "sha256-aP3aOIVcnCfLzZ/ED6iZ610KCUoWTXUx8HcWG6AdHWY=";
+    };
+    vendorHash = "sha256-+OMhaAGA+pmiDUyXDo9UfQ0SFEAN9zuNZjnLkgr7a+0=";
+  });
 in
 {
 
@@ -82,7 +93,7 @@ in
       wants = [ "setup-cirrus-worker-config.service" "docker.service" ];
       wantedBy = [ "multi-user.target" ];
       serviceConfig = {
-        ExecStart = "${pkgs.cirrus-cli}/bin/cirrus worker run --file ${CONFIG_FILE_PATH} --name ${cfg.name} --labels type=small";
+        ExecStart = "${patched-cirrus-cli}/bin/cirrus worker run --file ${CONFIG_FILE_PATH} --name ${cfg.name} --labels type=small --single-task";
         ExecStartPost="${pkgs.bash}/bin/bash -c 'sleep 2 && ${pkgs.coreutils}/bin/rm ${CONFIG_FILE_PATH} && echo \"removed cirrus worker config file ${CONFIG_FILE_PATH}\"'";
         Restart = "always";
         User = cfg.user;
