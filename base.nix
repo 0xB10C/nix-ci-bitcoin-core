@@ -69,7 +69,7 @@ let
         
         services.cirrus-runner = {
           enable = true;
-          name = "vm-${toString id}";
+          name = "vm${toString id}";
           configFile = "/etc/cirrus/worker.yml";
         };
 
