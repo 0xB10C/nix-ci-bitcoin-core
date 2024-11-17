@@ -19,7 +19,7 @@
           modules = [
             disko.nixosModules.disko
             microvm.nixosModules.host
-            ./base.nix
+            ./host/host.nix
             ./disk-config-ax52.nix
             ./dedicated-hardware-configuration.nix
             {
