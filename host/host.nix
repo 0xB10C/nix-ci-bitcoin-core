@@ -9,12 +9,12 @@
 
 let
   ccacheDir = "/data/ci-data/nginx-ccache/";
-  mkVM = (import ../vm/vm.nix {inherit pkgs microvm;});
+  mkVM = (import ../vm/vm.nix { inherit pkgs microvm; });
 in
 {
-  imports = [];
+  imports = [ ];
   services.openssh.enable = true;
-  
+
   environment.systemPackages = [
     pkgs.ccache
     pkgs.htop
@@ -27,8 +27,8 @@ in
     # willcl-ark
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH988C5DbEPHfoCphoW23MWq9M6fmA4UTXREiZU0J7n0 will.hetzner@temp.com"
   ];
- 
-  nix.settings= {
+
+  nix.settings = {
     extra-substituters = [ "https://microvm.cachix.org" ];
     extra-trusted-public-keys = [ "microvm.cachix.org-1:oXnBc6hRE3eX5rSYdRyMYXnfzcCxC7yKPTbZXALsqys=" ];
   };
@@ -72,12 +72,15 @@ in
     };
   };
 
-  systemd.tmpfiles.rules = [ "d '${ccacheDir}' 0770 'nginx' 'nginx' - -" ];  
+  systemd.tmpfiles.rules = [ "d '${ccacheDir}' 0770 'nginx' 'nginx' - -" ];
   systemd.services.nginx.serviceConfig.ReadWriteDirectories = "${ccacheDir}";
 
   nix.settings = {
-    experimental-features = [ "nix-command" "flakes" ];
+    experimental-features = [
+      "nix-command"
+      "flakes"
+    ];
   };
-  
+
   system.stateVersion = "24.05";
 }

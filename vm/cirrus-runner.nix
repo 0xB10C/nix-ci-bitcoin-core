@@ -1,5 +1,10 @@
-{ pkgs, lib, config, ... }:
-let 
+{
+  pkgs,
+  lib,
+  config,
+  ...
+}:
+let
   cfg = config.services.cirrus-runner;
   CONFIG_FILE_PATH = "/var/lib/cirrus-worker/worker.yml";
 
@@ -24,13 +29,13 @@ in
       default = null;
       description = "The name of the cirrus worker.";
     };
-       
+
     configFile = lib.mkOption {
       type = lib.types.str;
       default = "/etc/cirrus/worker.yml";
       description = "The path to a cirrus worker configuration file, which contains, for example, the cirrus token. This file must only be readable by root.";
     };
-    
+
     ccacheDir = lib.mkOption {
       type = lib.types.str;
       default = "/var/ccache/";
@@ -42,13 +47,13 @@ in
       default = "cirrus-worker";
       description = "The user the cirrus worker should run under.";
     };
-    
+
     group = lib.mkOption {
       type = lib.types.str;
       default = "cirrus-worker";
       description = "The group the cirrus worker should run under.";
     };
-        
+
   };
 
   config = lib.mkIf cfg.enable {
@@ -86,35 +91,44 @@ in
         User = "root"; # only root can read the config file
       };
     };
-    
+
     systemd.services.cirrus-worker = {
       description = "Cirrus CI Worker";
-      after = [ "network.target" "docker.service" "setup-cirrus-worker-config.service" ];
-      wants = [ "setup-cirrus-worker-config.service" "docker.service" ];
+      after = [
+        "network.target"
+        "docker.service"
+        "setup-cirrus-worker-config.service"
+      ];
+      wants = [
+        "setup-cirrus-worker-config.service"
+        "docker.service"
+      ];
       wantedBy = [ "multi-user.target" ];
       serviceConfig = {
         ExecStart = "${patched-cirrus-cli}/bin/cirrus worker run --file ${CONFIG_FILE_PATH} --name ${cfg.name} --labels type=small --single-task";
-        ExecStartPost="${pkgs.bash}/bin/bash -c 'sleep 2 && ${pkgs.coreutils}/bin/rm ${CONFIG_FILE_PATH} && echo \"removed cirrus worker config file ${CONFIG_FILE_PATH}\"'";
-        ExecStopPost="${pkgs.bash}/bin/bash -c 'sleep 5 && /run/wrappers/bin/vm-shutdown now'";
+        ExecStartPost = "${pkgs.bash}/bin/bash -c 'sleep 2 && ${pkgs.coreutils}/bin/rm ${CONFIG_FILE_PATH} && echo \"removed cirrus worker config file ${CONFIG_FILE_PATH}\"'";
+        ExecStopPost = "${pkgs.bash}/bin/bash -c 'sleep 5 && /run/wrappers/bin/vm-shutdown now'";
         User = cfg.user;
         Group = cfg.group;
         WorkingDirectory = "/var/lib/cirrus-worker";
       };
       environment = {
         XDG_CACHE_HOME = "/var/lib/cirrus-worker/.cache";
-        PATH = lib.mkForce (lib.makeBinPath [
-          pkgs.bash
-          pkgs.coreutils
-          pkgs.findutils
-          pkgs.gnugrep
-          pkgs.gnused
-          pkgs.systemd
-          pkgs.cirrus-cli
-          pkgs.docker
-          pkgs.python3
-          pkgs.git
-          pkgs.podman
-        ]);
+        PATH = lib.mkForce (
+          lib.makeBinPath [
+            pkgs.bash
+            pkgs.coreutils
+            pkgs.findutils
+            pkgs.gnugrep
+            pkgs.gnused
+            pkgs.systemd
+            pkgs.cirrus-cli
+            pkgs.docker
+            pkgs.python3
+            pkgs.git
+            pkgs.podman
+          ]
+        );
         DOCKER_HOST = "unix:///var/run/docker.sock";
         RESTART_CI_DOCKER_BEFORE_RUN = "1";
         CCACHE_REMOTE_STORAGE = "http://10.0.2.10:8000/cache/";
@@ -139,11 +153,9 @@ in
       shell = pkgs.bash;
       extraGroups = [ "docker" ];
     };
-    users.groups."${cfg.group}" = {};
+    users.groups."${cfg.group}" = { };
 
-    systemd.tmpfiles.rules = [
-      "d /var/lib/cirrus-worker 0700 ${cfg.user} ${cfg.group} -"
-    ];
-    
+    systemd.tmpfiles.rules = [ "d /var/lib/cirrus-worker 0700 ${cfg.user} ${cfg.group} -" ];
+
   };
 }
