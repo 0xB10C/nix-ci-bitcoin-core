@@ -117,7 +117,7 @@ in
         ]);
         DOCKER_HOST = "unix:///var/run/docker.sock";
         RESTART_CI_DOCKER_BEFORE_RUN = "1";
-        CCACHE_REMOTE_STORAGE = "http://10.0.2.10:80/cache/";
+        CCACHE_REMOTE_STORAGE = "http://10.0.2.10:8000/cache/";
       };
     };
 

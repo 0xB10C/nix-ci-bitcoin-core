@@ -119,8 +119,7 @@ in
     vm3 = mkVM 3;
   };
 
-  # TODO: set correct interface
-  networking.firewall.allowedTCPPorts = [ 80 ];
+  networking.firewall.interfaces.lo.allowedTCPPorts = [ 8000 ];
 
   services.nginx = {
     enable = true;
@@ -128,7 +127,7 @@ in
       listen = [
         {
           addr = "127.0.0.1";
-          port = 80;
+          port = 8000;
         }
       ];
       locations."/cache/" = {
