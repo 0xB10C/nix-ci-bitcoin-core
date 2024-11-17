@@ -95,7 +95,7 @@ in
       serviceConfig = {
         ExecStart = "${patched-cirrus-cli}/bin/cirrus worker run --file ${CONFIG_FILE_PATH} --name ${cfg.name} --labels type=small --single-task";
         ExecStartPost="${pkgs.bash}/bin/bash -c 'sleep 2 && ${pkgs.coreutils}/bin/rm ${CONFIG_FILE_PATH} && echo \"removed cirrus worker config file ${CONFIG_FILE_PATH}\"'";
-        Restart = "always";
+        ExecStopPost="${pkgs.bash}/bin/bash -c 'sleep 5 && /run/wrappers/bin/vm-shutdown now'";
         User = cfg.user;
         Group = cfg.group;
         WorkingDirectory = "/var/lib/cirrus-worker";
@@ -118,6 +118,15 @@ in
         DOCKER_HOST = "unix:///var/run/docker.sock";
         RESTART_CI_DOCKER_BEFORE_RUN = "1";
         CCACHE_REMOTE_STORAGE = "http://10.0.2.10:80/cache/";
+      };
+    };
+
+    security.wrappers = {
+      vm-shutdown = {
+        setuid = true;
+        owner = "root";
+        group = "root";
+        source = "${pkgs.systemd}/bin/poweroff";
       };
     };
 
