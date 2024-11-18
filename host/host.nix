@@ -11,7 +11,10 @@ let
   mkVM = (import ../vm/vm.nix { inherit pkgs microvm; });
 in
 {
-  imports = [ ./ccache.nix ];
+  imports = [
+    ./ccache.nix
+    ./ci-persist.nix
+  ];
   services.openssh.enable = true;
 
   environment.systemPackages = [

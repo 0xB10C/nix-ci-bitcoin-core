@@ -23,6 +23,12 @@ id: {
           tag = "etc-cirrus";
           proto = "virtiofs";
         }
+        {
+          source = "/data/ci-persist/";
+          mountPoint = "/persist";
+          tag = "persist";
+          proto = "virtiofs";
+        }
       ];
       volumes = [
         {
@@ -30,22 +36,27 @@ id: {
           image = "var.img";
           size = 40 * 1024;
         }
+        {
+          mountPoint = "/ci_container_base";
+          image = "ci.img";
+          size = 15 * 1024;
+        }
       ];
       forwardPorts = [
-        # forward local port 220, 221, .. -> 22, to ssh into the VM
+        # forward local port 2001, 2002, .. -> 22, to ssh into the VM
         {
           from = "host";
-          host.port = (2220 + id);
+          host.port = (2000 + id);
           guest.port = 22;
         }
 
-        # forward local port 80 -> 10.0.2.15:80 in the VLAN
+        # forward port 8000 with a nginx with ccache to the VM
         {
           from = "guest";
           guest.address = "10.0.2.10";
-          guest.port = 80;
+          guest.port = 8000;
           host.address = "127.0.0.1";
-          host.port = 80;
+          host.port = 8000;
         }
       ];
       interfaces = [

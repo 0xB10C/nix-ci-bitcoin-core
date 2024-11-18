@@ -8,6 +8,8 @@ let
   cfg = config.services.cirrus-runner;
   CONFIG_FILE_PATH = "/var/lib/cirrus-worker/worker.yml";
 
+  CIRRUS_WORKER_HOME = "/var/lib/cirrus-worker";
+
   patched-cirrus-cli = pkgs.cirrus-cli.overrideAttrs (oldAttrs: rec {
     version = "9885ae3dadc5b8656c8e1d5e61b7de5020510d88";
     src = pkgs.fetchFromGitHub {
@@ -34,12 +36,6 @@ in
       type = lib.types.str;
       default = "/etc/cirrus/worker.yml";
       description = "The path to a cirrus worker configuration file, which contains, for example, the cirrus token. This file must only be readable by root.";
-    };
-
-    ccacheDir = lib.mkOption {
-      type = lib.types.str;
-      default = "/var/ccache/";
-      description = "The path to a read and writeable directory for a ccache. Most exist.";
     };
 
     user = lib.mkOption {
@@ -131,7 +127,13 @@ in
         );
         DOCKER_HOST = "unix:///var/run/docker.sock";
         RESTART_CI_DOCKER_BEFORE_RUN = "1";
+        # The host has a big ccache. Use it in during the build.
         CCACHE_REMOTE_STORAGE = "http://10.0.2.10:8000/cache/";
+        # By default, the CI will cache depends (sources & built) and
+        # prev_releases in docker volumes. However, the VMs are ephemeral
+        # and we don't keep the docker volumes. Rather, use 'bind' mounts
+        # to folders on the disk - these folders are set up below.   
+        DANGER_CI_ON_HOST_CACHE_FOLDERS = "true";
       };
     };
 
@@ -148,14 +150,34 @@ in
       isSystemUser = true;
       group = cfg.group;
       description = "Cirrus CI worker user";
-      home = "/var/lib/cirrus-worker";
+      home = CIRRUS_WORKER_HOME;
       createHome = true;
       shell = pkgs.bash;
       extraGroups = [ "docker" ];
     };
     users.groups."${cfg.group}" = { };
 
-    systemd.tmpfiles.rules = [ "d /var/lib/cirrus-worker 0700 ${cfg.user} ${cfg.group} -" ];
-
+    systemd.tmpfiles.rules = [
+      # Create the home directory of the cirrus-worker.
+      "d '${CIRRUS_WORKER_HOME}'                0700 ${cfg.user} ${cfg.group} -"
+      # Create the working directory of the CI and the depends directory inside of it.
+      "d '/ci_container_base'                   0700 ${cfg.user} ${cfg.group} -"
+      "d '/ci_container_base/depends'           0700 ${cfg.user} ${cfg.group} -"
+      # Create and make cirrus-worker the owner of the persisted depends and releases directories. 
+      "d '/persist/prev_releases'               0700 ${cfg.user} ${cfg.group} -"
+      "d '/persist/depends/sources'             0700 ${cfg.user} ${cfg.group} -"
+      "d '/persist/depends/built'               0700 ${cfg.user} ${cfg.group} -"
+      # While cirrus-worker is the owner of these, also recursively set the file and
+      # directory attributes to +i (immutable). With the effect that the cirrus-worker
+      # can create new files, but can't overwrite or delete existing files. This serves
+      # as protection against a mallicous CI job deleting the cached depends. 
+      "H '/persist/prev_releases'               -    -           -            -  +i"
+      "H '/persist/depends/built'               -    -           -            -  +i"
+      "H '/persist/depends/sources'             -    -           -            -  +i"
+      # Symlink the working directories to the persistent counterparts.
+      "L '/ci_container_base/depends/sources'   -    -           -            -  /persist/depends/sources"
+      "L '/ci_container_base/depends/built'     -    -           -            -  /persist/depends/built"
+      "L '/ci_container_base/prev_releases'     -    -           -            -  /persist/prev_releases"
+    ];
   };
 }
