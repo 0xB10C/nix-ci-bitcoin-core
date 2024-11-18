@@ -101,7 +101,7 @@ in
       ];
       wantedBy = [ "multi-user.target" ];
       serviceConfig = {
-        ExecStart = "${patched-cirrus-cli}/bin/cirrus worker run --file ${CONFIG_FILE_PATH} --name ${cfg.name} --labels type=small --single-task";
+        ExecStart = "${pkgs.bash}/bin/bash -c '${patched-cirrus-cli}/bin/cirrus worker run --file ${CONFIG_FILE_PATH} --name ${cfg.name}-ephemeral-$(date +%s) --labels type=small --single-task'";
         ExecStartPost = "${pkgs.bash}/bin/bash -c 'sleep 2 && ${pkgs.coreutils}/bin/rm ${CONFIG_FILE_PATH} && echo \"removed cirrus worker config file ${CONFIG_FILE_PATH}\"'";
         ExecStopPost = "${pkgs.bash}/bin/bash -c 'sleep 5 && /run/wrappers/bin/vm-shutdown now'";
         User = cfg.user;
