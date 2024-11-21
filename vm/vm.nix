@@ -1,8 +1,18 @@
 { pkgs, microvm, ... }:
 
 id: {
+
+  autostart = true;
+  restartIfChanged = true;
+  
+  
+  
   config = {
     imports = [ ./cirrus-runner.nix ];
+
+    _module.args = {
+      inherit id; 
+    };
 
     microvm = {
       hypervisor = "qemu";

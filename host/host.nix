@@ -42,9 +42,29 @@ in
     vm3 = mkVM 3;
   };
 
-  systemd.services."microvm@vm1".serviceConfig.ExecStartPre = "${pkgs.bash}/bin/bash -c 'rm /var/lib/microvms/vm1/*.img || true'";
-  systemd.services."microvm@vm2".serviceConfig.ExecStartPre = "${pkgs.bash}/bin/bash -c 'rm /var/lib/microvms/vm2/*.img || true'";
-  systemd.services."microvm@vm3".serviceConfig.ExecStartPre = "${pkgs.bash}/bin/bash -c 'rm /var/lib/microvms/vm3/*.img || true'";
+
+  # an ExecStartPre that deletes the state of each VM before startup
+  systemd.services = builtins.foldl' (acc: name:
+    acc // {
+      "microvm@${name}" = {
+        serviceConfig.ExecStartPre = [
+          "${pkgs.bash}/bin/bash -c 'rm -rf /var/lib/microvms/${name}/*.img || true'"
+        ];
+      };
+    }
+  ) {} (builtins.attrNames config.microvm.vms);
+
+  # a SSH config entry for each VM
+  programs.ssh.extraConfig = builtins.concatStringsSep "" (lib.attrsets.mapAttrsToList (name: vm: 
+    ''
+      Host ${name}
+        HostName 127.0.0.1
+        Port ${toString (2000 + vm.config._module.args.id)}
+        User root
+        StrictHostKeyChecking no
+        UserKnownHostsFile /dev/null
+    ''
+    ) config.microvm.vms);
 
   nix.settings = {
     experimental-features = [
