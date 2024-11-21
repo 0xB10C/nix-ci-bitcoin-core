@@ -14,6 +14,7 @@ in
   imports = [
     ./ccache.nix
     ./ci-persist.nix
+    ./docker-registry.nix
   ];
   services.openssh.enable = true;
 
@@ -40,6 +41,10 @@ in
     vm2 = mkVM 2;
     vm3 = mkVM 3;
   };
+
+  systemd.services."microvm@vm1".serviceConfig.ExecStartPre = "${pkgs.bash}/bin/bash -c 'rm /var/lib/microvms/vm1/*.img || true'";
+  systemd.services."microvm@vm2".serviceConfig.ExecStartPre = "${pkgs.bash}/bin/bash -c 'rm /var/lib/microvms/vm2/*.img || true'";
+  systemd.services."microvm@vm3".serviceConfig.ExecStartPre = "${pkgs.bash}/bin/bash -c 'rm /var/lib/microvms/vm3/*.img || true'";
 
   nix.settings = {
     experimental-features = [
