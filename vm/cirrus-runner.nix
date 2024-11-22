@@ -74,7 +74,7 @@ in
         done
       '';
       environment = {
-        DOCKER_HOST="unix:///run/user/999/docker.sock";
+        DOCKER_HOST="unix:///run/user/8333/docker.sock";
       };
       wantedBy = [ "multi-user.target" ];
     };
@@ -132,31 +132,31 @@ in
         ExecStart = "${pkgs.bash}/bin/bash -c '${patched-cirrus-cli}/bin/cirrus worker run --file ${CONFIG_FILE_PATH} --name ${cfg.name}-ephemeral --labels type=small --single-task'";
         ExecStartPost = "${pkgs.bash}/bin/bash -c 'sleep 2 && ${pkgs.coreutils}/bin/rm ${CONFIG_FILE_PATH} && echo \"removed cirrus worker config file ${CONFIG_FILE_PATH}\"'";
         ExecStopPost = [
-          "${pkgs.writeShellScript "save-docker-images.sh" ''
+          # "${pkgs.writeShellScript "save-docker-images.sh" ''
               
-              FILE="/persist/debug/execstoppost-${cfg.name}-$RANDOM.log"
-              echo "" >> $FILE
-              docker image ls >> $FILE
-              docker images | sed '1d' | ${pkgs.gawk}/bin/awk '{print $1 " " $2 " " $3}' >> $FILE
+          #     FILE="/persist/debug/execstoppost-${cfg.name}-$RANDOM.log"
+          #     echo "" >> $FILE
+          #     docker image ls >> $FILE
+          #     docker images | sed '1d' | ${pkgs.gawk}/bin/awk '{print $1 " " $2 " " $3}' >> $FILE
 
-              echo "List all images" >> $FILE
-              images=$(docker images --format "{{.Repository}}:{{.Tag}}")
-              echo "images: $images" >> $FILE
+          #     echo "List all images" >> $FILE
+          #     images=$(docker images --format "{{.Repository}}:{{.Tag}}")
+          #     echo "images: $images" >> $FILE
 
-              # Loop through each image and save it
-              for image in $images; do
-                # Replace colons in filenames to avoid issues (e.g., `image-name:tag` becomes `image-name_tag`)
-                filename=$(echo $image | tr ':' '_').tar
-                echo "filename: $filename" >> $FILE
+          #     # Loop through each image and save it
+          #     for image in $images; do
+          #       # Replace colons in filenames to avoid issues (e.g., `image-name:tag` becomes `image-name_tag`)
+          #       filename=$(echo $image | tr ':' '_').tar
+          #       echo "filename: $filename" >> $FILE
   
-                # Save the image to a tar file
-                docker save -o "/persist/docker/$filename" "$image" >> $FILE
-                echo "Saved $image to $filename" >> $FILE
-              done
-              echo "=====" >> $FILE
-              echo "" >> $FILE
+          #       # Save the image to a tar file
+          #       docker save -o "/persist/docker/$filename" "$image" >> $FILE
+          #       echo "Saved $image to $filename" >> $FILE
+          #     done
+          #     echo "=====" >> $FILE
+          #     echo "" >> $FILE
               
-          ''}"
+          # ''}"
           "${pkgs.bash}/bin/bash -c 'sleep 5 && /run/wrappers/bin/vm-shutdown now'"
         ];
         User = cfg.user;
@@ -180,7 +180,7 @@ in
             pkgs.podman
           ]
         );
-        DOCKER_HOST="unix:///run/user/999/docker.sock";
+        DOCKER_HOST="unix:///run/user/8333/docker.sock";
         # The host has a big ccache. Use it in during the build.
         CCACHE_DIR = "/ci_container_base/ccache";
         # The host is managing the ccache size and trimming. Don't
@@ -209,6 +209,7 @@ in
       description = "Cirrus CI worker user";
       home = CIRRUS_WORKER_HOME;
       createHome = true;
+      uid = 8333;
       shell = pkgs.bash;
       linger = true;
       subUidRanges = [
@@ -218,39 +219,31 @@ in
         { startGid = 100000; count = 65536; }
       ];
     };
-    users.groups."${cfg.group}" = { };
+    users.groups."${cfg.group}" = {      
+      gid = 8333;
+    };
+
+    systemd.services.bindfs-cache-mount = {
+      description = "bindfs mount for /cache";
+      after = [ "local-fs.target" ];
+      wantedBy = [ "multi-user.target" ];
+      serviceConfig = {
+        ExecStart = "${pkgs.bindfs}/bin/bindfs --force-user=${cfg.user} --force-group=${cfg.group} /persist /cache";
+        ExecStop = "umount /cache";
+        RemainAfterExit = true;
+      };
+    };
 
     systemd.tmpfiles.rules = [
       # Create the home directory of the cirrus-worker.
       "d '${CIRRUS_WORKER_HOME}'                0700 ${cfg.user} ${cfg.group} -"
       # Create the working directory of the CI and the depends directory inside of it.
       "d '/ci_container_base'                   0700 ${cfg.user} ${cfg.group} -"
-      "d '/ci_container_base/depends'           0700 ${cfg.user} ${cfg.group} -"
-      # Create and make cirrus-worker the owner of the persisted depends and releases directories. 
-      "d '/persist/prev_releases'               0700 ${cfg.user} ${cfg.group} -"
-      "d '/persist/depends/sources'             0700 ${cfg.user} ${cfg.group} -"
-      "d '/persist/depends/built'               0700 ${cfg.user} ${cfg.group} -"
-      "d '/persist/docker'                      0700 ${cfg.user} ${cfg.group} -"
-      "d '/persist/debug'                       0700 ${cfg.user} ${cfg.group} -"
-      "d '/persist/ccache'                      0700 ${cfg.user} ${cfg.group} -"
-      # While cirrus-worker is the owner of these, also recursively set the file and
-      # directory attributes to +i (immutable). With the effect that the cirrus-worker
-      # can create new files, but can't overwrite or delete existing files. This serves
-      # as protection against a mallicous CI job deleting the cached depends. 
-      # "H '/persist/prev_releases'               -    -           -            -  +i"
-      # "H '/persist/depends/built'               -    -           -            -  +i"
-      # "H '/persist/depends/sources'             -    -           -            -  +i"
+      "d '/cache'                               0700 ${cfg.user} ${cfg.group} -"
       # Symlink the working directories to the persistent counterparts.
-      "L '/ci_container_base/depends/sources'   -    -           -            -  /persist/depends/sources"
-      "L '/ci_container_base/depends/built'     -    -           -            -  /persist/depends/built"
-      "L '/ci_container_base/prev_releases'     -    -           -            -  /persist/prev_releases"
-      "L '/ci_container_base/ccache'            -    -           -            -  /persist/ccache"
-      # TODO: doc set permissions
-      "Z '/ci_container_base'                   0700 ${cfg.user} ${cfg.group} -"
-      "Z '/persist/depends'                     0700 ${cfg.user} ${cfg.group} -"
-      "Z '/persist/prev_releases'               0700 ${cfg.user} ${cfg.group} -"
-      "Z '/persist/docker'                      0700 ${cfg.user} ${cfg.group} -"
-      "Z '/persist/ccache'                      0700 ${cfg.user} ${cfg.group} -"
+      "L '/ci_container_base/depends'           -    -           -            -  /cache/depends/"
+      "L '/ci_container_base/prev_releases'     -    -           -            -  /cache/prev_releases"
+      "L '/ci_container_base/ccache'            -    -           -            -  /cache/ccache"
     ];
   };
 }

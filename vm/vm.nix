@@ -1,17 +1,15 @@
-{ pkgs, microvm, ... }:
+{ pkgs, config, microvm,  ... }:
 
-id: {
+id: name: size: {
 
   autostart = true;
   restartIfChanged = true;
-  
-  
-  
+
   config = {
     imports = [ ./cirrus-runner.nix ];
 
     _module.args = {
-      inherit id; 
+      inherit id name size; 
     };
 
     microvm = {
@@ -26,18 +24,21 @@ id: {
           mountPoint = "/nix/.ro-store";
           tag = "ro-store";
           proto = "virtiofs";
+          securityModel = "mapped";
         }
         {
           source = "/etc/cirrus/";
           mountPoint = "/etc/cirrus";
           tag = "etc-cirrus";
           proto = "virtiofs";
+          securityModel = "mapped";
         }
         {
-          source = "/data/ci-persist/";
+          source = "/data/overlay/merged/${name}/";
           mountPoint = "/persist";
           tag = "persist";
           proto = "virtiofs";
+          securityModel = "mapped";
         }
       ];
       volumes = [
@@ -96,7 +97,7 @@ id: {
 
     services.cirrus-runner = {
       enable = true;
-      name = "vm${toString id}";
+      name = name;
       configFile = "/etc/cirrus/worker.yml";
     };
 
