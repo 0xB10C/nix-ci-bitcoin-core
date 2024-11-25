@@ -132,30 +132,8 @@ in
         ExecStart = "${pkgs.bash}/bin/bash -c '${patched-cirrus-cli}/bin/cirrus worker run --file ${CONFIG_FILE_PATH} --name ${cfg.name}-ephemeral --labels type=small --single-task'";
         ExecStartPost = "${pkgs.bash}/bin/bash -c 'sleep 2 && ${pkgs.coreutils}/bin/rm ${CONFIG_FILE_PATH} && echo \"removed cirrus worker config file ${CONFIG_FILE_PATH}\"'";
         ExecStopPost = [
-          # "${pkgs.writeShellScript "save-docker-images.sh" ''
-              
-          #     FILE="/persist/debug/execstoppost-${cfg.name}-$RANDOM.log"
-          #     echo "" >> $FILE
-          #     docker image ls >> $FILE
-          #     docker images | sed '1d' | ${pkgs.gawk}/bin/awk '{print $1 " " $2 " " $3}' >> $FILE
-
-          #     echo "List all images" >> $FILE
-          #     images=$(docker images --format "{{.Repository}}:{{.Tag}}")
-          #     echo "images: $images" >> $FILE
-
-          #     # Loop through each image and save it
-          #     for image in $images; do
-          #       # Replace colons in filenames to avoid issues (e.g., `image-name:tag` becomes `image-name_tag`)
-          #       filename=$(echo $image | tr ':' '_').tar
-          #       echo "filename: $filename" >> $FILE
-  
-          #       # Save the image to a tar file
-          #       docker save -o "/persist/docker/$filename" "$image" >> $FILE
-          #       echo "Saved $image to $filename" >> $FILE
-          #     done
-          #     echo "=====" >> $FILE
-          #     echo "" >> $FILE
-              
+          "${pkgs.writeShellScript "copy-docker-cache.sh" ''
+            mv -n --verbose /tmp/docker-build-cache/ /cache/docker/              
           # ''}"
           "${pkgs.bash}/bin/bash -c 'sleep 5 && /run/wrappers/bin/vm-shutdown now'"
         ];
@@ -191,6 +169,8 @@ in
         # and we don't keep the docker volumes. Rather, use 'bind' mounts
         # to folders on the disk - these folders are set up below.   
         DANGER_CI_ON_HOST_CACHE_FOLDERS = "true";
+        # TODO: doc
+        CI_IMAGE_BUILD_EXTRA_ARGS = "--cache-to type=local,dest=/tmp/docker-build-cache,mode=max --cache-from type=local,src=/cache/docker";
       };
     };
 

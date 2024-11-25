@@ -30,6 +30,22 @@ let
     ''
   ) vms);
 
+  overlayMounts = (map (vm:
+    let
+      name = "vm${toString vm.id}";
+    in    
+      {
+        enable = true;
+        where = "/data/overlay/${name}/merged";
+        type = "overlay";
+        what = "overlay";
+        options = "lowerdir=/data/ci-persist,upperdir=/data/overlay/${name}/upper,workdir=/data/overlay/${name}/work";
+        partOf = [ "microvm@${name}.service" ];
+        before = [ "microvm@${name}.service" ];
+        wantedBy = [ "multi-user.target" ];
+      }
+  ) vms);
+
   mkVMs = vm: 
     let
       name = "vm${toString vm.id}";
@@ -38,6 +54,8 @@ let
       microvm.vms.${name} = mkVM vm.id name vm.size;
 
       systemd.services."microvm@${name}".serviceConfig = {
+        after = [ "data-overlay-${name}-merged.mount" ];
+        requires = [ "data-overlay-${name}-merged.mount" ];
         ExecStartPre = [
           "${pkgs.bash}/bin/bash -c 'rm /var/lib/microvms/${name}/*.img || true'"
         ];
@@ -49,6 +67,10 @@ let
             if [ -d "$SOURCE" ]; then
               echo "copying non-existing ccache files from $SOURCE to $DEST"
               cp -n -R $SOURCE/* $DEST/ --verbose
+              echo "removing lock and stats files from $DEST"
+              rm -rf $DEST/lock
+              rm -rf $DEST/*/stats
+              rm -rf $DEST/*/*/stats
             fi
           ''}"
           "${pkgs.writeShellScript "copy-new-built-depends.sh" ''
@@ -62,8 +84,8 @@ let
           ''}"
           "${pkgs.writeShellScript "copy-new-depends-sources.sh" ''
             echo "running 03 copy-new-depends-sources.sh for ${name}"
-            SOURCE="/data/vm-cache/${name}/depends/sources"
-            DEST="/data/ci-persist/depends/sources"
+            SOURCE="/data/vm-cache/${name}/depends/sources/"
+            DEST="/data/ci-persist/depends/sources/*"
             if [ -d "$SOURCE" ]; then
               echo "copying new depends sources from $SOURCE to $DEST"
               cp -n -R $SOURCE/* $DEST/ --verbose
@@ -71,15 +93,24 @@ let
           ''}"
           "${pkgs.writeShellScript "copy-new-prev_releases.sh" ''
             echo "running 04 copy-new-prev_releases.sh for ${name}"
-            SOURCE="/data/vm-cache/${name}/prev_releases"
-            DEST="/data/ci-persist/prev_releases"
+            SOURCE="/data/vm-cache/${name}/prev_releases/*"
+            DEST="/data/ci-persist/prev_releases/"
             if [ -d "$SOURCE" ]; then
               echo "copying new prev_releases files from $SOURCE to $DEST"
               cp -n -R $SOURCE/* $DEST/ --verbose
             fi
           ''}"
+          "${pkgs.writeShellScript "copy-docker-image-cache.sh" ''
+            echo "running 05 copy-docker-image-cache.sh for ${name}"
+            SOURCE="/data/vm-cache/${name}/docker/*"
+            DEST="/data/ci-persist/docker/"
+            if [ -d "$SOURCE" ]; then
+              echo "copying new docker files from $SOURCE to $DEST"
+              cp -n -R $SOURCE $DEST --verbose
+            fi
+          ''}"
           "${pkgs.writeShellScript "cleaning-up-cache.sh" ''
-            echo "running 05 cleaning-up-cache.sh for ${name}"
+            echo "running 06 cleaning-up-cache.sh for ${name}"
             SOURCE="/data/vm-cache/${name}"            
             if [ -d "$SOURCE" ]; then            
               echo "cleaning up files in $SOURCE"
@@ -96,35 +127,47 @@ let
         wantedBy = [ "multi-user.target" ];
         serviceConfig = {
           ExecStartPre = [
-            "${pkgs.writeShellScript "create-vm-cache-dir.sh" ''
+            "${pkgs.writeShellScript "create-${name}-cache-dir.sh" ''
               echo "creating vm-cache dir for ${name}"
               mkdir -p /data/vm-cache/${name}
-              chown microvm:root /data/vm-cache/${name} -R
+              chown microvm:kvm /data/vm-cache/${name} -R
               chmod 700 /data/vm-cache/${name} -R
             ''}"
           ];
-          ExecStart = "${pkgs.bindfs}/bin/bindfs --force-user=microvm /data/overlay/upper/${name} /data/vm-cache/${name}";
+          ExecStart = "${pkgs.bindfs}/bin/bindfs --force-user=microvm /data/overlay/${name}/upper/ /data/vm-cache/${name}";
           ExecStop = "umount /data/vm-cache/${name}";
           RemainAfterExit = true;
         };
       };
 
-      systemd.tmpfiles.rules = [
-        # "d '/data/vm-cache/${name}/'       0700 'microvm' 'root' - -"
-        "d '/data/overlay/upper/${name}/'  0700 'root' 'root' - -"
-        "d '/data/overlay/work/${name}/'   0700 'root' 'root' - -"
-        "Z '/data/overlay/merged/${name}/' 0700 'root' 'root' - -"
-      ];
+      systemd.mounts = overlayMounts;
 
-      fileSystems."/data/overlay/merged/${name}" = {
-        device = "none";
-        fsType = "overlay";
-        options = [
-          "lowerdir=/data/ci-persist/"
-          "upperdir=/data/overlay/upper/${name}"
-          "workdir=/data/overlay/work/${name}"
-        ];
-      };      
+      systemd.tmpfiles.settings = {
+        "${name}" = {
+          "/data/vm-cache/${name}/" = {
+            d = {
+              user = "microvm";
+              group = "kvm";
+              mode = "0700";
+            };
+          };
+          "/data/overlay/${name}/upper/" = {
+            d = {
+              user = "root";
+              group = "root";
+              mode = "0700";
+            };
+          };
+          "/data/overlay/${name}/work" = {
+            d = {
+              user = "root";
+              group = "root";
+              mode = "0700";
+            };
+          };
+        };
+      };
+
     };
 
   vmConfigurations = lib.foldl' lib.recursiveUpdate {} (map mkVMs vms);  
@@ -133,9 +176,8 @@ in
   {
   imports = [
     # microvm.host
-    ./ccache.nix
     ./ci-persist.nix
-    ./docker-registry.nix
+    # ./docker-registry.nix
   ];
   services.openssh.enable = true;
 

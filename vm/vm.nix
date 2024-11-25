@@ -34,7 +34,7 @@ id: name: size: {
           securityModel = "mapped";
         }
         {
-          source = "/data/overlay/merged/${name}/";
+          source = "/data/overlay/${name}/merged";
           mountPoint = "/persist";
           tag = "persist";
           proto = "virtiofs";
@@ -103,13 +103,16 @@ id: name: size: {
 
     # Configure docker in rootless mode to run the CI scripts
     virtualisation.docker = {
-      enable = true;
+      # enable = true;
       rootless = {
         enable = true;
         setSocketVariable = true;
         daemon.settings = {
           dns = [ "8.8.8.8" "1.1.1.1" ];
           insecure-registries = [ "10.0.2.10:5000" ];
+          features = {
+            containerd-snapshotter = true;
+          };
         };
       };
     };
