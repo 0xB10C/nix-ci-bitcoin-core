@@ -54,32 +54,6 @@ in
 
   config = lib.mkIf cfg.enable {
 
-    systemd.services.load-docker-images= {
-      description = "Load docker images";
-      after = [
-        "docker.service"
-      ];
-      wants = [
-        "docker.service"
-      ];
-      serviceConfig = {
-        Type = "oneshot";
-        User = cfg.user;
-        Group = cfg.group;
-      };
-      script = ''
-        DIRECTORY="/persist/docker/"
-        for file in "$DIRECTORY"/*; do
-          ${pkgs.docker}/bin/docker load --input $file
-        done
-      '';
-      environment = {
-        DOCKER_HOST="unix:///run/user/8333/docker.sock";
-      };
-      wantedBy = [ "multi-user.target" ];
-    };
-
-
     # The cirrus worker gets its own temporary copy of the configuration file.
     # This file is removed after cirrus-cli has read it to ensure a CI script
     # can't read it, which would expose the runner token allowing to spawn
@@ -120,12 +94,10 @@ in
         "network.target"
         "docker.service"
         "setup-cirrus-worker-config.service"
-        "load-docker-images.service"
       ];
       wants = [
         "setup-cirrus-worker-config.service"
         "docker.service"
-        "load-docker-images.service"
       ];
       wantedBy = [ "multi-user.target" ];
       serviceConfig = {
@@ -133,7 +105,7 @@ in
         ExecStartPost = "${pkgs.bash}/bin/bash -c 'sleep 2 && ${pkgs.coreutils}/bin/rm ${CONFIG_FILE_PATH} && echo \"removed cirrus worker config file ${CONFIG_FILE_PATH}\"'";
         ExecStopPost = [
           "${pkgs.writeShellScript "copy-docker-cache.sh" ''
-            mv -n --verbose /tmp/docker-build-cache/ /cache/docker/              
+            mv -n --verbose /tmp/docker-build-cache/* /cache/docker/              
           # ''}"
           "${pkgs.bash}/bin/bash -c 'sleep 5 && /run/wrappers/bin/vm-shutdown now'"
         ];
@@ -170,7 +142,9 @@ in
         # to folders on the disk - these folders are set up below.   
         DANGER_CI_ON_HOST_CACHE_FOLDERS = "true";
         # TODO: doc
-        CI_IMAGE_BUILD_EXTRA_ARGS = "--cache-to type=local,dest=/tmp/docker-build-cache,mode=max --cache-from type=local,src=/cache/docker";
+        CI_IMAGE_BUILD_EXTRA_ARGS = "--cache-to type=local,dest=/tmp/docker-build-cache,mode=max --cache-from type=local,src=/cache/docker --progress=plain --build-arg BUILDKIT_INLINE_CACHE=1";
+        # CI_IMAGE_BUILD_EXTRA_ARGS = "--cache-to type=registry,ref=10.0.2.10:5000/ci:cache,mode=max --cache-from type=registry,ref=10.0.2.10:5000/ci:cache";
+        # CI_IMAGE_BUILD_EXTRA_ARGS = "--cache-to type=registry,ref=127.0.1:5000/ci:cache,mode=max --cache-from type=registry,ref=127.0.0.1:5000/ci:cache --progress=placin";
       };
     };
 

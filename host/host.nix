@@ -102,11 +102,11 @@ let
           ''}"
           "${pkgs.writeShellScript "copy-docker-image-cache.sh" ''
             echo "running 05 copy-docker-image-cache.sh for ${name}"
-            SOURCE="/data/vm-cache/${name}/docker/*"
+            SOURCE="/data/vm-cache/${name}/docker/"
             DEST="/data/ci-persist/docker/"
             if [ -d "$SOURCE" ]; then
               echo "copying new docker files from $SOURCE to $DEST"
-              cp -n -R $SOURCE $DEST --verbose
+              cp -n -R $SOURCE/* $DEST --verbose
             fi
           ''}"
           "${pkgs.writeShellScript "cleaning-up-cache.sh" ''
@@ -177,7 +177,7 @@ in
   imports = [
     # microvm.host
     ./ci-persist.nix
-    # ./docker-registry.nix
+    ./docker-registry.nix
   ];
   services.openssh.enable = true;
 
