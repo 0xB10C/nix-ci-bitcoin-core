@@ -11,12 +11,12 @@ let
   CIRRUS_WORKER_HOME = "/var/lib/cirrus-worker";
 
   patched-cirrus-cli = pkgs.cirrus-cli.overrideAttrs (oldAttrs: rec {
-    version = "9885ae3dadc5b8656c8e1d5e61b7de5020510d88";
+    version = "22729156d1e508ec16b1bc98f59d1ffc6249927e";
     src = pkgs.fetchFromGitHub {
       owner = "0xb10c";
       repo = "cirrus-cli";
-      rev = "a8d7ba7b20a11f22008d9b53b41858fad93fdc7c";
-      sha256 = "sha256-aP3aOIVcnCfLzZ/ED6iZ610KCUoWTXUx8HcWG6AdHWY=";
+      rev = version;
+      sha256 = "sha256-+BjY0oNkVcwttT8gfXZm0vWLOyGJyEjypIKl144ADUg=";
     };
     vendorHash = "sha256-+OMhaAGA+pmiDUyXDo9UfQ0SFEAN9zuNZjnLkgr7a+0=";
   });
@@ -101,7 +101,7 @@ in
       ];
       wantedBy = [ "multi-user.target" ];
       serviceConfig = {
-        ExecStart = "${pkgs.bash}/bin/bash -c '${patched-cirrus-cli}/bin/cirrus worker run --file ${CONFIG_FILE_PATH} --name ${cfg.name}-ephemeral --labels type=small --single-task'";
+        ExecStart = "${pkgs.bash}/bin/bash -c '${patched-cirrus-cli}/bin/cirrus worker run --file ${CONFIG_FILE_PATH} --name ${cfg.name}-ephemeral --labels type=small --ephemeral'";
         ExecStartPost = "${pkgs.bash}/bin/bash -c 'sleep 2 && ${pkgs.coreutils}/bin/rm ${CONFIG_FILE_PATH} && echo \"removed cirrus worker config file ${CONFIG_FILE_PATH}\"'";
         ExecStopPost = [
           "${pkgs.writeShellScript "copy-docker-cache.sh" ''
