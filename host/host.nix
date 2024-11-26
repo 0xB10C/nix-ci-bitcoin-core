@@ -16,6 +16,8 @@ let
     { id = 3; size = "small"; }
   ];
 
+  # builds an ssh config file for the VMs
+  # allowing easy ssh access to debug the VMs
   sshConfig = lib.concatStrings (map (vm:
     let
       name = "vm${toString vm.id}";
@@ -30,6 +32,11 @@ let
     ''
   ) vms);
 
+  # defines a list of overlay mounts for the VMs
+  # These overlays are 'partOf' the microVM service
+  # for each VM and are restarted (and re-created) each
+  # time the VM is restarted. This is needed to ensure
+  # the overlayFS is still properly mounted.
   overlayMounts = (map (vm:
     let
       name = "vm${toString vm.id}";
@@ -56,21 +63,25 @@ let
       systemd.services."microvm@${name}".serviceConfig = {
         after = [ "data-overlay-${name}-merged.mount" ];
         requires = [ "data-overlay-${name}-merged.mount" ];
+
+        # before the VM starts, remove all disk images
         ExecStartPre = [
           "${pkgs.bash}/bin/bash -c 'rm /var/lib/microvms/${name}/*.img || true'"
         ];
+
+        # after the VM stops, copy cache data and clean up
         ExecStopPost = [
           "${pkgs.writeShellScript "copy-new-ccache-entries.sh" ''
             echo "running 01 copy-new-ccache-entries.sh for ${name}"
             SOURCE="/data/vm-cache/${name}/ccache"
             DEST="/data/ci-persist/ccache"
             if [ -d "$SOURCE" ]; then
+              echo "removing lock and stats files from $SOURCE"
+              rm -rf $SOURCE/lock
+              rm -rf $SOURCE/*/stats
+              rm -rf $SOURCE/*/*/stats
               echo "copying non-existing ccache files from $SOURCE to $DEST"
               cp -n -R $SOURCE/* $DEST/ --verbose
-              echo "removing lock and stats files from $DEST"
-              rm -rf $DEST/lock
-              rm -rf $DEST/*/stats
-              rm -rf $DEST/*/*/stats
             fi
           ''}"
           "${pkgs.writeShellScript "copy-new-built-depends.sh" ''
@@ -177,7 +188,6 @@ in
   imports = [
     # microvm.host
     ./ci-persist.nix
-    ./docker-registry.nix
   ];
   services.openssh.enable = true;
 
@@ -200,9 +210,6 @@ in
   nix.settings = {
     extra-substituters = [ "https://microvm.cachix.org" ];
     extra-trusted-public-keys = [ "microvm.cachix.org-1:oXnBc6hRE3eX5rSYdRyMYXnfzcCxC7yKPTbZXALsqys=" ];
-  };
-
-  nix.settings = {
     experimental-features = [
       "nix-command"
       "flakes"

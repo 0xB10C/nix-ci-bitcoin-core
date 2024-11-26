@@ -60,23 +60,6 @@ id: name: size: {
           host.port = (2000 + id);
           guest.port = 22;
         }
-
-        # forward port 8000 with a nginx with ccache to the VM
-        {
-          from = "guest";
-          guest.address = "10.0.2.10";
-          guest.port = 8000;
-          host.address = "127.0.0.1";
-          host.port = 8000;
-        }
-        # forward port 5000 with a docker registry to the VM
-        {
-          from = "guest";
-          guest.address = "10.0.2.10";
-          guest.port = 5000;
-          host.address = "127.0.0.1";
-          host.port = config.services.dockerRegistry.port;
-        }
       ];
       interfaces = [
         {
@@ -101,27 +84,12 @@ id: name: size: {
       configFile = "/etc/cirrus/worker.yml";
     };
 
-
-    services.dockerRegistry = {
-      enable = true;
-      enableGarbageCollect = true;
-      enableDelete = true;
-    };
-
-    # Configure docker in rootless mode to run the CI scripts
     virtualisation.docker = {
-      # enable = true;
       rootless = {
         enable = true;
         setSocketVariable = true;
         daemon.settings = {
           dns = [ "8.8.8.8" "1.1.1.1" ];
-          insecure-registries = [ 
-            "10.0.2.10/32"
-            "10.0.2.10:5000"
-            "http://10.0.2.10:5000"
-            "http://172.17.0.1:5000"
-          ];
           features = {
             containerd-snapshotter = true;
           };

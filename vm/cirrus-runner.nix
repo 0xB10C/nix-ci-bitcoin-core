@@ -32,18 +32,21 @@ in
       description = "The name of the cirrus worker.";
     };
 
+    # TODO: we can probably hardcode this
     configFile = lib.mkOption {
       type = lib.types.str;
       default = "/etc/cirrus/worker.yml";
       description = "The path to a cirrus worker configuration file, which contains, for example, the cirrus token. This file must only be readable by root.";
     };
 
+    # can probably be hardcoded
     user = lib.mkOption {
       type = lib.types.str;
       default = "cirrus-worker";
       description = "The user the cirrus worker should run under.";
     };
 
+    # can be hardcoded
     group = lib.mkOption {
       type = lib.types.str;
       default = "cirrus-worker";
@@ -100,18 +103,21 @@ in
         "docker.service"
       ];
       wantedBy = [ "multi-user.target" ];
+      # TODO: more hardening!!
       serviceConfig = {
         ExecStart = "${pkgs.bash}/bin/bash -c '${patched-cirrus-cli}/bin/cirrus worker run --file ${CONFIG_FILE_PATH} --name ${cfg.name}-ephemeral --labels type=small --ephemeral'";
         ExecStartPost = "${pkgs.bash}/bin/bash -c 'sleep 2 && ${pkgs.coreutils}/bin/rm ${CONFIG_FILE_PATH} && echo \"removed cirrus worker config file ${CONFIG_FILE_PATH}\"'";
         ExecStopPost = [
+          # TODO: we can probably get rid of this
           "${pkgs.writeShellScript "copy-docker-cache.sh" ''
             mv -n --verbose /tmp/docker-build-cache/* /cache/docker/              
-          # ''}"
+          ''}"
+          # after the process ended, wait 5 seconds and then shut down the VM
           "${pkgs.bash}/bin/bash -c 'sleep 5 && /run/wrappers/bin/vm-shutdown now'"
         ];
         User = cfg.user;
         Group = cfg.group;
-        WorkingDirectory = "/var/lib/cirrus-worker";
+        WorkingDirectory = CIRRUS_WORKER_HOME;
       };
       environment = {
         XDG_CACHE_HOME = "/var/lib/cirrus-worker/.cache";
@@ -139,15 +145,17 @@ in
         # By default, the CI will cache depends (sources & built) and
         # prev_releases in docker volumes. However, the VMs are ephemeral
         # and we don't keep the docker volumes. Rather, use 'bind' mounts
-        # to folders on the disk - these folders are set up below.   
+        # to folders on the "disk". These folders are mounted on /cache
+        # and are symlinked to the expected locations below.    
         DANGER_CI_ON_HOST_CACHE_FOLDERS = "true";
-        # TODO: doc
+        # Set the extra docker build arguments to cache  
         CI_IMAGE_BUILD_EXTRA_ARGS = "--cache-to type=local,dest=/tmp/docker-build-cache,mode=max --cache-from type=local,src=/cache/docker --progress=plain --build-arg BUILDKIT_INLINE_CACHE=1";
-        # CI_IMAGE_BUILD_EXTRA_ARGS = "--cache-to type=registry,ref=10.0.2.10:5000/ci:cache,mode=max --cache-from type=registry,ref=10.0.2.10:5000/ci:cache";
-        # CI_IMAGE_BUILD_EXTRA_ARGS = "--cache-to type=registry,ref=127.0.1:5000/ci:cache,mode=max --cache-from type=registry,ref=127.0.0.1:5000/ci:cache --progress=placin";
       };
     };
 
+    # create a setuid wrapper for systemd-poweroff. This allows the
+    # unprivileged cirrus-worker user to shutdown the VM after the
+    # job finishes.
     security.wrappers = {
       vm-shutdown = {
         setuid = true;
@@ -165,7 +173,9 @@ in
       createHome = true;
       uid = 8333;
       shell = pkgs.bash;
+      # linger is needed for rootless docker
       linger = true;
+      # subUidRanges and subGidRanges are needed for rootless docker
       subUidRanges = [
         { startUid = 100000; count = 65536; }
       ];
@@ -177,6 +187,9 @@ in
       gid = 8333;
     };
 
+    # the /perist mount from the host is only read/writable by
+    # root. A bind mount to /cache for the cirrus-worker user
+    # makes it read/writable for the cirrus-worker user too.
     systemd.services.bindfs-cache-mount = {
       description = "bindfs mount for /cache";
       after = [ "local-fs.target" ];
@@ -191,7 +204,7 @@ in
     systemd.tmpfiles.rules = [
       # Create the home directory of the cirrus-worker.
       "d '${CIRRUS_WORKER_HOME}'                0700 ${cfg.user} ${cfg.group} -"
-      # Create the working directory of the CI and the depends directory inside of it.
+      # Create the working directory of the CI.
       "d '/ci_container_base'                   0700 ${cfg.user} ${cfg.group} -"
       "d '/cache'                               0700 ${cfg.user} ${cfg.group} -"
       # Symlink the working directories to the persistent counterparts.
