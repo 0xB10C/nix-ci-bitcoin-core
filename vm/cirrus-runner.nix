@@ -108,10 +108,6 @@ in
         ExecStart = "${pkgs.bash}/bin/bash -c '${patched-cirrus-cli}/bin/cirrus worker run --file ${CONFIG_FILE_PATH} --name ${cfg.name}-ephemeral --labels type=small --ephemeral'";
         ExecStartPost = "${pkgs.bash}/bin/bash -c 'sleep 2 && ${pkgs.coreutils}/bin/rm ${CONFIG_FILE_PATH} && echo \"removed cirrus worker config file ${CONFIG_FILE_PATH}\"'";
         ExecStopPost = [
-          # TODO: we can probably get rid of this
-          "${pkgs.writeShellScript "copy-docker-cache.sh" ''
-            mv -n --verbose /tmp/docker-build-cache/* /cache/docker/              
-          ''}"
           # after the process ended, wait 5 seconds and then shut down the VM
           "${pkgs.bash}/bin/bash -c 'sleep 5 && /run/wrappers/bin/vm-shutdown now'"
         ];
@@ -148,8 +144,8 @@ in
         # to folders on the "disk". These folders are mounted on /cache
         # and are symlinked to the expected locations below.    
         DANGER_CI_ON_HOST_CACHE_FOLDERS = "true";
-        # Set the extra docker build arguments to cache  
-        CI_IMAGE_BUILD_EXTRA_ARGS = "--cache-to type=local,dest=/tmp/docker-build-cache,mode=max --cache-from type=local,src=/cache/docker --progress=plain --build-arg BUILDKIT_INLINE_CACHE=1";
+        # Set the extra docker build arguments to cache the build steps
+        CI_IMAGE_BUILD_EXTRA_ARGS = "--cache-to type=local,dest=/cache/docker/\${CONTAINER_NAME},mode=max  --cache-from type=local,src=/cache/docker/$CONTAINER_NAME --progress=plain --build-arg BUILDKIT_INLINE_CACHE=1";
       };
     };
 
