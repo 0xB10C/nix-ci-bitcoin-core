@@ -111,13 +111,23 @@ let
               cp -n -R $SOURCE/* $DEST/ --verbose
             fi
           ''}"
-          "${pkgs.writeShellScript "copy-docker-image-cache.sh" ''
-            echo "running 05 copy-docker-image-cache.sh for ${name}"
-            SOURCE="/data/vm-cache/${name}/docker/"
+          "${pkgs.writeShellScript "move-docker-image-cache.sh" ''
+            echo "running 05 move-docker-image-cache.sh for ${name}"
+            set -o xtrace
+            SOURCE="/data/vm-cache/${name}/docker"
             DEST="/data/ci-persist/docker/"
             if [ -d "$SOURCE" ]; then
-              echo "copying new docker files from $SOURCE to $DEST"
-              cp -n -R $SOURCE/* $DEST --verbose
+              for path in "$SOURCE"/*; do
+                image=$(basename "$path")
+                if [ -d "$SOURCE/$image" ]; then
+                  if [ -e "$SOURCE/$image/index.json" ]; then
+                    echo "removing existing cache for: $image"
+                    rm -rf "$DEST/$image" --verbose
+                    echo "moving docker files from $SOURCE/$image to $DEST"
+                    mv "$SOURCE/$image" "$DEST" --verbose
+                  fi
+                fi
+              done
             fi
           ''}"
           "${pkgs.writeShellScript "cleaning-up-cache.sh" ''

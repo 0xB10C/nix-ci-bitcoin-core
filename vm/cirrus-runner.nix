@@ -145,7 +145,7 @@ in
         # and are symlinked to the expected locations below.    
         DANGER_CI_ON_HOST_CACHE_FOLDERS = "true";
         # Set the extra docker build arguments to cache the build steps
-        CI_IMAGE_BUILD_EXTRA_ARGS = "--cache-to type=local,dest=/cache/docker/\${CONTAINER_NAME},mode=max  --cache-from type=local,src=/cache/docker/$CONTAINER_NAME --progress=plain --build-arg BUILDKIT_INLINE_CACHE=1";
+        DOCKER_BUILD_CACHE_HOST_DIR = "/cache/docker";
       };
     };
 
