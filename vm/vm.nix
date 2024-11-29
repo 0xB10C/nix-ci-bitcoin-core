@@ -15,7 +15,7 @@ id: name: size: {
     microvm = {
       hypervisor = "qemu";
       mem = 8192;
-      vcpu = 2;
+      vcpu = 4;
       shares = [
         {
           # It is highly recommended to share the host's nix-store
