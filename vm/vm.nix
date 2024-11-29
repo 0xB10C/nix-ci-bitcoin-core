@@ -54,11 +54,17 @@ id: name: size: {
         }
       ];
       forwardPorts = [
-        # forward local port 2001, 2002, .. -> 22, to ssh into the VM
+        # forward host port 2001, 2002, .. -> 22, to ssh into the VM
         {
           from = "host";
           host.port = (2000 + id);
           guest.port = 22;
+        }
+        # forward host port 9501, 9502, .. -> 9200, to scrape prometheus node metrics from the VM
+        {
+          from = "host";
+          host.port = (9500 + id);
+          guest.port = 9002;
         }
       ];
       interfaces = [
@@ -93,6 +99,20 @@ id: name: size: {
           features = {
             containerd-snapshotter = true;
           };
+        };
+      };
+    };
+
+    networking.firewall.allowedTCPPorts = [
+      config.services.prometheus.exporters.node.port
+    ];
+    
+    services.prometheus = {
+      exporters = {
+        node = {
+          enable = true;
+          enabledCollectors = [ "systemd" ];
+          port = 9002;
         };
       };
     };

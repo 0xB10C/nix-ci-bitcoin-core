@@ -53,6 +53,18 @@ let
       }
   ) vms);
 
+  vmNodeExporterScrapeConfigs = (map (vm:
+    let
+      name = "vm${toString vm.id}";
+    in    
+      {
+        job_name = name;
+          static_configs = [
+          { targets = [ "127.0.0.1:${toString (9500+vm.id)}" ]; }
+        ];
+      }
+  ) vms);
+
   mkVMs = vm: 
     let
       name = "vm${toString vm.id}";
@@ -60,86 +72,87 @@ let
       # define the actual microvm 
       microvm.vms.${name} = mkVM vm.id name vm.size;
 
-      systemd.services."microvm@${name}".serviceConfig = {
+      systemd.services."microvm@${name}" = {
         after = [ "data-overlay-${name}-merged.mount" ];
         requires = [ "data-overlay-${name}-merged.mount" ];
+        serviceConfig = {
+          # before the VM starts, remove all disk images
+          ExecStartPre = [
+            "${pkgs.bash}/bin/bash -c 'rm /var/lib/microvms/${name}/*.img || true'"
+          ];
 
-        # before the VM starts, remove all disk images
-        ExecStartPre = [
-          "${pkgs.bash}/bin/bash -c 'rm /var/lib/microvms/${name}/*.img || true'"
-        ];
-
-        # after the VM stops, copy cache data and clean up
-        ExecStopPost = [
-          "${pkgs.writeShellScript "copy-new-ccache-entries.sh" ''
-            echo "running 01 copy-new-ccache-entries.sh for ${name}"
-            SOURCE="/data/vm-cache/${name}/ccache"
-            DEST="/data/ci-persist/ccache"
-            if [ -d "$SOURCE" ]; then
-              echo "removing lock and stats files from $SOURCE"
-              rm -rf $SOURCE/lock
-              rm -rf $SOURCE/*/stats
-              rm -rf $SOURCE/*/*/stats
-              echo "copying non-existing ccache files from $SOURCE to $DEST"
-              cp -n -R $SOURCE/* $DEST/ --verbose
-            fi
-          ''}"
-          "${pkgs.writeShellScript "copy-new-built-depends.sh" ''
-            echo "running 02 copy-new-built-depends.sh for ${name}"
-            SOURCE="/data/vm-cache/${name}/depends/built"
-            DEST="/data/ci-persist/depends/built"
-            if [ -d "$SOURCE" ]; then
-              echo "copying newly built depends from $SOURCE to $DEST"
-              cp -n -R $SOURCE/* $DEST/ --verbose
-            fi
-          ''}"
-          "${pkgs.writeShellScript "copy-new-depends-sources.sh" ''
-            echo "running 03 copy-new-depends-sources.sh for ${name}"
-            SOURCE="/data/vm-cache/${name}/depends/sources/"
-            DEST="/data/ci-persist/depends/sources/*"
-            if [ -d "$SOURCE" ]; then
-              echo "copying new depends sources from $SOURCE to $DEST"
-              cp -n -R $SOURCE/* $DEST/ --verbose
-            fi
-          ''}"
-          "${pkgs.writeShellScript "copy-new-prev_releases.sh" ''
-            echo "running 04 copy-new-prev_releases.sh for ${name}"
-            SOURCE="/data/vm-cache/${name}/prev_releases/*"
-            DEST="/data/ci-persist/prev_releases/"
-            if [ -d "$SOURCE" ]; then
-              echo "copying new prev_releases files from $SOURCE to $DEST"
-              cp -n -R $SOURCE/* $DEST/ --verbose
-            fi
-          ''}"
-          "${pkgs.writeShellScript "move-docker-image-cache.sh" ''
-            echo "running 05 move-docker-image-cache.sh for ${name}"
-            set -o xtrace
-            SOURCE="/data/vm-cache/${name}/docker"
-            DEST="/data/ci-persist/docker/"
-            if [ -d "$SOURCE" ]; then
-              for path in "$SOURCE"/*; do
-                image=$(basename "$path")
-                if [ -d "$SOURCE/$image" ]; then
-                  if [ -e "$SOURCE/$image/index.json" ]; then
-                    echo "removing existing cache for: $image"
-                    rm -rf "$DEST/$image" --verbose
-                    echo "moving docker files from $SOURCE/$image to $DEST"
-                    mv "$SOURCE/$image" "$DEST" --verbose
+          # after the VM stops, copy cache data and clean up
+          ExecStopPost = [
+            "${pkgs.writeShellScript "copy-new-ccache-entries.sh" ''
+              echo "running 01 copy-new-ccache-entries.sh for ${name}"
+              SOURCE="/data/vm-cache/${name}/ccache"
+              DEST="/data/ci-persist/ccache"
+              if [ -d "$SOURCE" ]; then
+                echo "removing lock and stats files from $SOURCE"
+                rm -rf $SOURCE/lock
+                rm -rf $SOURCE/*/stats
+                rm -rf $SOURCE/*/*/stats
+                echo "copying non-existing ccache files from $SOURCE to $DEST"
+                cp -n -R $SOURCE/* $DEST/ --verbose
+              fi
+            ''}"
+            "${pkgs.writeShellScript "copy-new-built-depends.sh" ''
+              echo "running 02 copy-new-built-depends.sh for ${name}"
+              SOURCE="/data/vm-cache/${name}/depends/built"
+              DEST="/data/ci-persist/depends/built"
+              if [ -d "$SOURCE" ]; then
+                echo "copying newly built depends from $SOURCE to $DEST"
+                cp -n -R $SOURCE/* $DEST/ --verbose
+              fi
+            ''}"
+            "${pkgs.writeShellScript "copy-new-depends-sources.sh" ''
+              echo "running 03 copy-new-depends-sources.sh for ${name}"
+              SOURCE="/data/vm-cache/${name}/depends/sources/"
+              DEST="/data/ci-persist/depends/sources/*"
+              if [ -d "$SOURCE" ]; then
+                echo "copying new depends sources from $SOURCE to $DEST"
+                cp -n -R $SOURCE/* $DEST/ --verbose
+              fi
+            ''}"
+            "${pkgs.writeShellScript "copy-new-prev_releases.sh" ''
+              echo "running 04 copy-new-prev_releases.sh for ${name}"
+              SOURCE="/data/vm-cache/${name}/prev_releases/*"
+              DEST="/data/ci-persist/prev_releases/"
+              if [ -d "$SOURCE" ]; then
+                echo "copying new prev_releases files from $SOURCE to $DEST"
+                cp -n -R $SOURCE/* $DEST/ --verbose
+              fi
+            ''}"
+            "${pkgs.writeShellScript "move-docker-image-cache.sh" ''
+              echo "running 05 move-docker-image-cache.sh for ${name}"
+              set -o xtrace
+              SOURCE="/data/vm-cache/${name}/docker"
+              DEST="/data/ci-persist/docker/"
+              if [ -d "$SOURCE" ]; then
+                for path in "$SOURCE"/*; do
+                  image=$(basename "$path")
+                  if [ -d "$SOURCE/$image" ]; then
+                    if [ -e "$SOURCE/$image/index.json" ]; then
+                      echo "removing existing cache for: $image"
+                      rm -rf "$DEST/$image" --verbose
+                      echo "moving docker files from $SOURCE/$image to $DEST"
+                      mv "$SOURCE/$image" "$DEST" --verbose
+                    fi
                   fi
-                fi
-              done
-            fi
-          ''}"
-          "${pkgs.writeShellScript "cleaning-up-cache.sh" ''
-            echo "running 06 cleaning-up-cache.sh for ${name}"
-            SOURCE="/data/vm-cache/${name}"            
-            if [ -d "$SOURCE" ]; then            
-              echo "cleaning up files in $SOURCE"
-              rm -rf $SOURCE/*
-              echo "done cleaning up files in $SOURCE: $(ls $SOURCE)"
-            fi
-          ''}"
-        ];
+                done
+              fi
+            ''}"
+            "${pkgs.writeShellScript "cleaning-up-cache.sh" ''
+              echo "running 06 cleaning-up-cache.sh for ${name}"
+              SOURCE="/data/vm-cache/${name}"            
+              if [ -d "$SOURCE" ]; then            
+                echo "cleaning up files in $SOURCE"
+                rm -rf $SOURCE/*
+                echo "done cleaning up files in $SOURCE: $(ls $SOURCE)"
+              fi
+            ''}"
+          ];
+        };
       };
 
       systemd.services."bindfs-mount-upper-${name}" = {
@@ -198,6 +211,7 @@ in
   imports = [
     # microvm.host
     ./ci-persist.nix
+    ./monitoring.nix
   ];
   services.openssh.enable = true;
 
@@ -225,6 +239,8 @@ in
       "flakes"
     ];
   };
+
+  services.prometheus.scrapeConfigs = vmNodeExporterScrapeConfigs;
 
   system.stateVersion = "24.05";
 }
