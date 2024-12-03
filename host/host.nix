@@ -11,9 +11,9 @@ let
   mkVM = (import ../vm/vm.nix { inherit pkgs config microvm; });
 
   vms = [
-    { id = 1; size = "small"; }
-    { id = 2; size = "small"; }
-    { id = 3; size = "small"; }
+    { id = 6; size = "small"; }
+    # { id = 2; size = "small"; }
+    # { id = 3; size = "small"; }
   ];
 
   # builds an ssh config file for the VMs
@@ -21,7 +21,7 @@ let
   sshConfig = lib.concatStrings (map (vm:
     let
       name = "vm${toString vm.id}";
-    in    
+    in
     ''
       Host ${name}
         HostName 127.0.0.1
@@ -40,7 +40,7 @@ let
   overlayMounts = (map (vm:
     let
       name = "vm${toString vm.id}";
-    in    
+    in
       {
         enable = true;
         where = "/data/overlay/${name}/merged";
@@ -56,7 +56,7 @@ let
   vmNodeExporterScrapeConfigs = (map (vm:
     let
       name = "vm${toString vm.id}";
-    in    
+    in
       {
         job_name = name;
           static_configs = [
@@ -65,11 +65,11 @@ let
       }
   ) vms);
 
-  mkVMs = vm: 
+  mkVMs = vm:
     let
       name = "vm${toString vm.id}";
     in {
-      # define the actual microvm 
+      # define the actual microvm
       microvm.vms.${name} = mkVM vm.id name vm.size;
 
       systemd.services."microvm@${name}" = {
@@ -144,8 +144,8 @@ let
             ''}"
             "${pkgs.writeShellScript "cleaning-up-cache.sh" ''
               echo "running 06 cleaning-up-cache.sh for ${name}"
-              SOURCE="/data/vm-cache/${name}"            
-              if [ -d "$SOURCE" ]; then            
+              SOURCE="/data/vm-cache/${name}"
+              if [ -d "$SOURCE" ]; then
                 echo "cleaning up files in $SOURCE"
                 rm -rf $SOURCE/*
                 echo "done cleaning up files in $SOURCE: $(ls $SOURCE)"
@@ -204,7 +204,7 @@ let
 
     };
 
-  vmConfigurations = lib.foldl' lib.recursiveUpdate {} (map mkVMs vms);  
+  vmConfigurations = lib.foldl' lib.recursiveUpdate {} (map mkVMs vms);
 in
   vmConfigurations //
   {
