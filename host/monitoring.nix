@@ -1,15 +1,16 @@
 { pkgs, config, ... }:
 
 {
-
   services.grafana = {
-    port = 1234;
-
-    protocol = "http";
-    addr = "127.0.0.1";
-    analytics.reporting.enable = false;
     enable = true;
-
+    settings = {
+      server = {
+        http_addr = "127.0.0.1";
+        http_port = 1234;
+        protocol = "http";
+      };
+      analytics.reporting_enabled = false;
+    };
     provision = {
       enable = true;
       datasources.settings.datasources = [

@@ -6,9 +6,13 @@
 }:
 let
   cfg = config.services.cirrus-runner;
-  CONFIG_FILE_PATH = "/var/lib/cirrus-worker/worker.yml";
+
+  MOUNTED_CONFIG_FILE_PATH = "/etc/cirrus/worker.yml";
+  VM_CONFIG_FILE_PATH = "/var/lib/cirrus-worker/worker.yml";
 
   CIRRUS_WORKER_HOME = "/var/lib/cirrus-worker";
+  CIRRUS_WORKER_USER = "cirrus-worker";
+  CIRRUS_WORKER_GROUP = "cirrus-worker";
 
   patched-cirrus-cli = pkgs.cirrus-cli.overrideAttrs (oldAttrs: rec {
     version = "22729156d1e508ec16b1bc98f59d1ffc6249927e";
@@ -32,25 +36,10 @@ in
       description = "The name of the cirrus worker.";
     };
 
-    # TODO: we can probably hardcode this
-    configFile = lib.mkOption {
+    size = lib.mkOption {
       type = lib.types.str;
-      default = "/etc/cirrus/worker.yml";
-      description = "The path to a cirrus worker configuration file, which contains, for example, the cirrus token. This file must only be readable by root.";
-    };
-
-    # can probably be hardcoded
-    user = lib.mkOption {
-      type = lib.types.str;
-      default = "cirrus-worker";
-      description = "The user the cirrus worker should run under.";
-    };
-
-    # can be hardcoded
-    group = lib.mkOption {
-      type = lib.types.str;
-      default = "cirrus-worker";
-      description = "The group the cirrus worker should run under.";
+      default = null;
+      description = "The size (type) of the cirrus worker. Either small or medium.";
     };
 
   };
@@ -69,21 +58,21 @@ in
         # To protect against set up errors, check that the
         # file is only readable by root. Otherwise, don't
         # copy the config file.
-        FILE_OWNER=$(stat -c "%U" "${cfg.configFile}")
-        FILE_PERMS=$(stat -c "%a" "${cfg.configFile}")
+        FILE_OWNER=$(stat -c "%U" "${MOUNTED_CONFIG_FILE_PATH}")
+        FILE_PERMS=$(stat -c "%a" "${MOUNTED_CONFIG_FILE_PATH}")
         if [ "$FILE_OWNER" != "root" ]; then
-          echo "${cfg.configFile} is not owned by root (owner is $FILE_OWNER)"
+          echo "${MOUNTED_CONFIG_FILE_PATH} is not owned by root (owner is $FILE_OWNER)"
           exit 1
-        fi        
+        fi
         if [ "$FILE_PERMS" != "600" ]; then
-          echo "${cfg.configFile} permissions are not restricted to read-only by root: 0600 (permissions: $FILE_PERMS)"
+          echo "${MOUNTED_CONFIG_FILE_PATH} permissions are not restricted to read-only by root: 0600 (permissions: $FILE_PERMS)"
           exit 1
         fi
 
-        cp ${cfg.configFile} ${CONFIG_FILE_PATH}
-        chown ${cfg.user}:${cfg.group} ${CONFIG_FILE_PATH}
-        chmod 600 ${CONFIG_FILE_PATH}
-        echo "Copied cirrus worker config file to ${CONFIG_FILE_PATH} read-writable by ${cfg.user}:${cfg.group}"
+        cp ${MOUNTED_CONFIG_FILE_PATH} ${VM_CONFIG_FILE_PATH}
+        chown ${CIRRUS_WORKER_USER}:${CIRRUS_WORKER_GROUP} ${VM_CONFIG_FILE_PATH}
+        chmod 600 ${VM_CONFIG_FILE_PATH}
+        echo "Copied cirrus worker config file to ${VM_CONFIG_FILE_PATH} read-writable by ${CIRRUS_WORKER_USER}:${CIRRUS_WORKER_GROUP}"
       '';
       serviceConfig = {
         Type = "oneshot";
@@ -105,14 +94,14 @@ in
       wantedBy = [ "multi-user.target" ];
       # TODO: more hardening!!
       serviceConfig = {
-        ExecStart = "${pkgs.bash}/bin/bash -c '${patched-cirrus-cli}/bin/cirrus worker run --file ${CONFIG_FILE_PATH} --name ${cfg.name}-ephemeral --labels type=small --ephemeral'";
-        ExecStartPost = "${pkgs.bash}/bin/bash -c 'sleep 2 && ${pkgs.coreutils}/bin/rm ${CONFIG_FILE_PATH} && echo \"removed cirrus worker config file ${CONFIG_FILE_PATH}\"'";
+        ExecStart = "${pkgs.bash}/bin/bash -c '${patched-cirrus-cli}/bin/cirrus worker run --file ${VM_CONFIG_FILE_PATH} --name ${cfg.name} --labels type=${cfg.size} --ephemeral'";
+        ExecStartPost = "${pkgs.bash}/bin/bash -c 'sleep 2 && ${pkgs.coreutils}/bin/rm ${VM_CONFIG_FILE_PATH} && echo \"removed cirrus worker config file ${VM_CONFIG_FILE_PATH}\"'";
         ExecStopPost = [
           # after the process ended, wait 5 seconds and then shut down the VM
           "${pkgs.bash}/bin/bash -c 'sleep 5 && /run/wrappers/bin/vm-shutdown now'"
         ];
-        User = cfg.user;
-        Group = cfg.group;
+        User = CIRRUS_WORKER_USER;
+        Group = CIRRUS_WORKER_GROUP;
         WorkingDirectory = CIRRUS_WORKER_HOME;
       };
       environment = {
@@ -142,7 +131,7 @@ in
         # prev_releases in docker volumes. However, the VMs are ephemeral
         # and we don't keep the docker volumes. Rather, use 'bind' mounts
         # to folders on the "disk". These folders are mounted on /cache
-        # and are symlinked to the expected locations below.    
+        # and are symlinked to the expected locations below.
         DANGER_CI_ON_HOST_CACHE_FOLDERS = "true";
         # Set the extra docker build arguments to cache the build steps
         DOCKER_BUILD_CACHE_HOST_DIR = "/cache/docker";
@@ -161,9 +150,9 @@ in
       };
     };
 
-    users.users."${cfg.user}" = {
+    users.users."${CIRRUS_WORKER_USER}" = {
       isSystemUser = true;
-      group = cfg.group;
+      group = CIRRUS_WORKER_GROUP;
       description = "Cirrus CI worker user";
       home = CIRRUS_WORKER_HOME;
       createHome = true;
@@ -179,7 +168,7 @@ in
         { startGid = 100000; count = 65536; }
       ];
     };
-    users.groups."${cfg.group}" = {      
+    users.groups."${CIRRUS_WORKER_GROUP}" = {
       gid = 8333;
     };
 
@@ -191,7 +180,7 @@ in
       after = [ "local-fs.target" ];
       wantedBy = [ "multi-user.target" ];
       serviceConfig = {
-        ExecStart = "${pkgs.bindfs}/bin/bindfs --force-user=${cfg.user} --force-group=${cfg.group} /persist /cache";
+        ExecStart = "${pkgs.bindfs}/bin/bindfs --force-user=${CIRRUS_WORKER_USER} --force-group=${CIRRUS_WORKER_GROUP} /persist /cache";
         ExecStop = "umount /cache";
         RemainAfterExit = true;
       };
@@ -199,10 +188,10 @@ in
 
     systemd.tmpfiles.rules = [
       # Create the home directory of the cirrus-worker.
-      "d '${CIRRUS_WORKER_HOME}'                0700 ${cfg.user} ${cfg.group} -"
+      "d '${CIRRUS_WORKER_HOME}'                0700 ${CIRRUS_WORKER_USER} ${CIRRUS_WORKER_GROUP} -"
       # Create the working directory of the CI.
-      "d '/ci_container_base'                   0700 ${cfg.user} ${cfg.group} -"
-      "d '/cache'                               0700 ${cfg.user} ${cfg.group} -"
+      "d '/ci_container_base'                   0700 ${CIRRUS_WORKER_USER} ${CIRRUS_WORKER_GROUP} -"
+      "d '/cache'                               0700 ${CIRRUS_WORKER_USER} ${CIRRUS_WORKER_GROUP} -"
       # Symlink the working directories to the persistent counterparts.
       "L '/ci_container_base/depends'           -    -           -            -  /cache/depends/"
       "L '/ci_container_base/prev_releases'     -    -           -            -  /cache/prev_releases"

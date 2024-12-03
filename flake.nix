@@ -55,9 +55,10 @@
           modules = [
             disko.nixosModules.disko
             microvm.nixosModules.host
-            ./host/host.nix
             ./disk-config-single-disk.nix
             ./hardware-configuration-big.nix
+            ./module.nix
+            ./base.nix
             {
               networking.hostName = name;
               boot.loader.grub.devices = [
@@ -66,6 +67,23 @@
               boot.loader.grub.enable = true;
               boot.loader.grub.efiSupport = true;
               boot.loader.grub.efiInstallAsRemovable = true;
+
+              services.cirrus-ephemeral-vm-runner = {
+                enable = true;
+                name = "big";
+                vms = {
+                  small = {
+                    count = 6;
+                    cpu = 4;
+                    memory = 8;
+                  };
+                  medium = {
+                    count = 4;
+                    cpu = 8;
+                    memory = 12;
+                  };
+                };
+              };
             }
           ];
         };
@@ -77,5 +95,6 @@
         dev = mkDev "dev" x86_64;
         big = mkBig "big" x86_64;
       };
+      nixosModules.default = import ./module.nix;
     };
 }

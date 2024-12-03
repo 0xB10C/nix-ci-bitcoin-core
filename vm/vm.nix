@@ -1,6 +1,6 @@
 { pkgs, config, microvm,  ... }:
 
-id: name: size: {
+id: name: size: runner_name: {
 
   autostart = true;
   restartIfChanged = true;
@@ -9,7 +9,7 @@ id: name: size: {
     imports = [ ./cirrus-runner.nix ];
 
     _module.args = {
-      inherit id name size; 
+      inherit id name size runner_name;
     };
 
     microvm = {
@@ -86,8 +86,8 @@ id: name: size: {
 
     services.cirrus-runner = {
       enable = true;
-      name = name;
-      configFile = "/etc/cirrus/worker.yml";
+      name = "${runner_name}-${name}";
+      size = size;
     };
 
     virtualisation.docker = {
@@ -106,7 +106,7 @@ id: name: size: {
     networking.firewall.allowedTCPPorts = [
       config.services.prometheus.exporters.node.port
     ];
-    
+
     services.prometheus = {
       exporters = {
         node = {
