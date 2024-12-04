@@ -1,6 +1,13 @@
 { pkgs, config, microvm,  ... }:
 
-id: name: size: runner_name: {
+{
+  id,
+  name,
+  size,
+  runner_name,
+  memory,
+  cpu,
+}: {
 
   autostart = true;
   restartIfChanged = true;
@@ -14,8 +21,8 @@ id: name: size: runner_name: {
 
     microvm = {
       hypervisor = "qemu";
-      mem = 8192;
-      vcpu = 4;
+      mem = (memory * 1024);
+      vcpu = cpu;
       shares = [
         {
           # It is highly recommended to share the host's nix-store
@@ -43,14 +50,12 @@ id: name: size: runner_name: {
       ];
       volumes = [
         {
-          mountPoint = "/var";
-          image = "var.img";
-          size = 15 * 1024;
-        }
-        {
-          mountPoint = "/ci_container_base";
-          image = "ci.img";
-          size = 20 * 1024;
+          # this is an ext4 volume, but we repurpose it as swap using a systemd
+          # service
+          mountPoint = "/swap";
+          image = "swap.img";
+          label = "swap";
+          size = 16 * 1024;
         }
       ];
       forwardPorts = [
@@ -74,6 +79,27 @@ id: name: size: runner_name: {
           mac = "02:00:00:00:00:0${toString id}";
         }
       ];
+    };
+
+    systemd.services.make-swap-on-volume = {
+      description = "repurpose /swap (ext4) as swap";
+      wantedBy = [ "multi-user.target" ];
+      script = ''
+        ${pkgs.busybox}/bin/umount /dev/disk/by-label/swap
+        ${pkgs.busybox}/bin/mkswap /dev/disk/by-label/swap -L swap
+        ${pkgs.busybox}/bin/swapon LABEL=swap
+        echo "swap on LABEL=swap $(free -h)"
+      '';
+      serviceConfig = {
+        Type = "oneshot";
+      };
+    };
+
+    fileSystems."/" = {
+      device = "rootfs";
+      fsType = "tmpfs";
+      options = [ "size=20G,mode=0755" ];
+      neededForBoot = true;
     };
 
     # TODO: disable root login..

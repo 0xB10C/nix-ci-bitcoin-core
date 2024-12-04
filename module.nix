@@ -122,6 +122,8 @@ in
     # for each VM and are restarted (and re-created) each
     # time the VM is restarted. This is needed to ensure
     # the overlayFS is still properly mounted.
+    # The clean-overlay-merged-dir-vm* services (see below)
+    # will clean the merged dir up before it's re-mounted.
     systemd.mounts = (
       map (vm: {
         enable = true;
@@ -149,7 +151,14 @@ in
       (
       builtins.listToAttrs (map (vm: {
         name = vm.name;
-        value = mkVM vm.id vm.name vm.size cfg.name;
+        value = mkVM {
+          id = vm.id;
+          name = vm.name;
+          size = vm.size;
+          runner_name = cfg.name;
+          memory = cfg.vms."${vm.size}".memory;
+          cpu = cfg.vms."${vm.size}".cpu;
+        };
       }) vmList)
     );
 
@@ -269,6 +278,25 @@ in
             ExecStart = "${pkgs.bindfs}/bin/bindfs --force-user=microvm /data/overlay/${vm.name}/upper/ /data/vm-cache/${vm.name}";
             ExecStop = "umount /data/vm-cache/${vm.name}";
             RemainAfterExit = true;
+          };
+        };
+      }) vmList))
+      // (builtins.listToAttrs (map (vm: {
+        name = "clean-overlay-merged-dir-${vm.name}";
+        value = {
+          description = "Clean /data/overlay/${vm.name}/merged before mounting";
+          wantedBy = [ "data-overlay-${vm.name}-merged.mount" ]; # Ensure this runs before the mount
+          before = [ "data-overlay-${vm.name}-merged.mount" ];
+          script = ''
+            SOURCE="/data/overlay/${vm.name}/merged"
+            if [ -d "$SOURCE" ]; then
+              echo "cleaning up files in $SOURCE"
+              rm -rf $SOURCE/*
+              echo "done cleaning up files in $SOURCE: $(ls $SOURCE)"
+            fi
+          '';
+          serviceConfig = {
+            Type = "oneshot";
           };
         };
       }) vmList));
