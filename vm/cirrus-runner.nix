@@ -8,9 +8,9 @@ let
   cfg = config.services.cirrus-runner;
 
   MOUNTED_CONFIG_FILE_PATH = "/etc/cirrus/worker.yml";
-  VM_CONFIG_FILE_PATH = "/var/lib/cirrus-worker/worker.yml";
+  VM_CONFIG_FILE_PATH = "/home/cirrus-worker/cirrus/worker.yml";
 
-  CIRRUS_WORKER_HOME = "/var/lib/cirrus-worker";
+  CIRRUS_WORKER_HOME = "/home/cirrus-worker";
   CIRRUS_WORKER_USER = "cirrus-worker";
   CIRRUS_WORKER_GROUP = "cirrus-worker";
 
@@ -52,7 +52,10 @@ in
     # mallicious workers.
     systemd.services.setup-cirrus-worker-config = {
       description = "Cirrus CI worker config creation";
-      after = [ "network.target" ];
+      after = [ "network-online.target" ];
+      wants = [
+        "network-online.target"
+      ];
       wantedBy = [ "cirrus-worker.service" ];
       script = ''
         # To protect against set up errors, check that the
@@ -83,11 +86,12 @@ in
     systemd.services.cirrus-worker = {
       description = "Cirrus CI Worker";
       after = [
-        "network.target"
+        "network-online.target"
         "docker.service"
         "setup-cirrus-worker-config.service"
       ];
       wants = [
+        "network-online.target"
         "setup-cirrus-worker-config.service"
         "docker.service"
       ];
@@ -105,7 +109,7 @@ in
         WorkingDirectory = CIRRUS_WORKER_HOME;
       };
       environment = {
-        XDG_CACHE_HOME = "/var/lib/cirrus-worker/.cache";
+        XDG_CACHE_HOME = "${CIRRUS_WORKER_HOME}/.cache";
         PATH = lib.mkForce (
           lib.makeBinPath [
             pkgs.bash
@@ -189,6 +193,7 @@ in
     systemd.tmpfiles.rules = [
       # Create the home directory of the cirrus-worker.
       "d '${CIRRUS_WORKER_HOME}'                0700 ${CIRRUS_WORKER_USER} ${CIRRUS_WORKER_GROUP} -"
+      "d '${CIRRUS_WORKER_HOME}/cirrus'         0700 ${CIRRUS_WORKER_USER} ${CIRRUS_WORKER_GROUP} -"
       # Create the working directory of the CI.
       "d '/ci_container_base'                   0700 ${CIRRUS_WORKER_USER} ${CIRRUS_WORKER_GROUP} -"
       "d '/cache'                               0700 ${CIRRUS_WORKER_USER} ${CIRRUS_WORKER_GROUP} -"

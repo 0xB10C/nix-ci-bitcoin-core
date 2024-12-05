@@ -1,5 +1,8 @@
 { pkgs, config, microvm,  ... }:
 
+let
+  swapDiskSize = 16; # in GB
+in
 {
   id,
   name,
@@ -49,13 +52,18 @@
         }
       ];
       volumes = [
+        # {
+        #   # this is an ext4 volume, but we repurpose it as swap using a systemd
+        #   # service
+        #   mountPoint = "/swap";
+        #   image = "swap.img";
+        #   label = "swap";
+        #   size = swapDiskSize * 1024;
+        # }
         {
-          # this is an ext4 volume, but we repurpose it as swap using a systemd
-          # service
-          mountPoint = "/swap";
-          image = "swap.img";
-          label = "swap";
-          size = 16 * 1024;
+          mountPoint = "/home/cirrus-worker";
+          image = "cirrus-worker-home.img";
+          size = 20 * 1024;
         }
       ];
       forwardPorts = [
@@ -75,34 +83,48 @@
       interfaces = [
         {
           type = "user";
-          id = "vm-${toString id}";
+          id = name;
           mac = "02:00:00:00:00:0${toString id}";
         }
       ];
     };
 
-    systemd.services.make-swap-on-volume = {
-      description = "repurpose /swap (ext4) as swap";
+    # repurpose the /swap ext4 volume as swap
+    # systemd.services.make-swap-on-volume = {
+    #   description = "repurpose /swap (ext4) as swap";
+    #   wantedBy = [ "multi-user.target" ];
+    #   script = ''
+    #     ${pkgs.busybox}/bin/umount /dev/disk/by-label/swap
+    #     ${pkgs.busybox}/bin/mkswap /dev/disk/by-label/swap -L swap
+    #     ${pkgs.busybox}/bin/swapon LABEL=swap
+    #     echo "swap on LABEL=swap $(free -h)"
+    #   '';
+    #   serviceConfig = {
+    #     Type = "oneshot";
+    #   };
+    # };
+
+    # check that /persist isn't empty. If it is empty, this indicates a
+    # problem with the overlay mount on the host. The VM needs to shutdown.
+    systemd.services.ensure-persist-is-not-empty = {
+      description = "Ensure /persist is not empty";
       wantedBy = [ "multi-user.target" ];
       script = ''
-        ${pkgs.busybox}/bin/umount /dev/disk/by-label/swap
-        ${pkgs.busybox}/bin/mkswap /dev/disk/by-label/swap -L swap
-        ${pkgs.busybox}/bin/swapon LABEL=swap
-        echo "swap on LABEL=swap $(free -h)"
+        FILE=/persist/.this-file-should-exist
+        echo "checking for $FILE"
+        if [ -f $FILE ]; then
+          echo "File $FILE exists - /persist mount is OK"
+        else
+          echo "File $FILE does not exist: /persist mount is NOT OK: shutting down VM"
+          shutdown now
+        fi
       '';
       serviceConfig = {
         Type = "oneshot";
       };
     };
 
-    fileSystems."/" = {
-      device = "rootfs";
-      fsType = "tmpfs";
-      options = [ "size=20G,mode=0755" ];
-      neededForBoot = true;
-    };
-
-    # TODO: disable root login..
+    # TODO: disable root login.
     users.users.root.password = "toor";
     services.openssh = {
       enable = true;
@@ -122,6 +144,7 @@
         setSocketVariable = true;
         daemon.settings = {
           dns = [ "8.8.8.8" "1.1.1.1" ];
+          data-root = "/home/cirrus-worker/docker";
           features = {
             containerd-snapshotter = true;
           };

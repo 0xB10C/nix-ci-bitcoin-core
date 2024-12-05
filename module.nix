@@ -14,12 +14,12 @@ let
   vmList =
     (builtins.genList (i: {
       id = i;
-      name = "vm${toString i}s";
+      name = "vm${toString i}small";
       size = "small";
     }) cfg.vms.small.count)
     ++ (builtins.genList (i: {
       id = i + cfg.vms.small.count;
-      name = "vm${toString (i + cfg.vms.small.count)}m";
+      name = "vm${toString (i + cfg.vms.small.count)}medium";
       size = "medium";
     }) cfg.vms.medium.count);
 in
@@ -122,7 +122,7 @@ in
     # for each VM and are restarted (and re-created) each
     # time the VM is restarted. This is needed to ensure
     # the overlayFS is still properly mounted.
-    # The clean-overlay-merged-dir-vm* services (see below)
+    # The clean-overlay-dirs-* services (see below)
     # will clean the merged dir up before it's re-mounted.
     systemd.mounts = (
       map (vm: {
@@ -140,7 +140,6 @@ in
     # create the actual microvm definitions for the VMs
     microvm.vms = builtins.trace (
       ''
-
         Deploying:
 
         - ${toString cfg.vms.small.count}x small VMs: using ${toString (cfg.vms.small.count * cfg.vms.small.cpu)} threads & ${toString (cfg.vms.small.count * cfg.vms.small.memory)} GB
@@ -221,7 +220,7 @@ in
               ''}"
               "${pkgs.writeShellScript "copy-new-prev_releases.sh" ''
                 echo "running 04 copy-new-prev_releases.sh for ${vm.name}"
-                SOURCE="/data/vm-cache/${vm.name}/prev_releases/*"
+                SOURCE="/data/vm-cache/${vm.name}/prev_releases/"
                 DEST="${cacheDir}/prev_releases/"
                 if [ -d "$SOURCE" ]; then
                   echo "copying new prev_releases files from $SOURCE to $DEST"
@@ -282,18 +281,32 @@ in
         };
       }) vmList))
       // (builtins.listToAttrs (map (vm: {
-        name = "clean-overlay-merged-dir-${vm.name}";
+        name = "clean-overlay-dirs-${vm.name}";
         value = {
           description = "Clean /data/overlay/${vm.name}/merged before mounting";
           wantedBy = [ "data-overlay-${vm.name}-merged.mount" ]; # Ensure this runs before the mount
           before = [ "data-overlay-${vm.name}-merged.mount" ];
           script = ''
-            SOURCE="/data/overlay/${vm.name}/merged"
-            if [ -d "$SOURCE" ]; then
-              echo "cleaning up files in $SOURCE"
-              rm -rf $SOURCE/*
-              echo "done cleaning up files in $SOURCE: $(ls $SOURCE)"
-            fi
+            MERGED="/data/overlay/${vm.name}/merged"
+            WORK="/data/overlay/${vm.name}/work"
+            UPPER="/data/overlay/${vm.name}/upper"
+
+            rm -rf --verbose $MERGED
+            rm -rf --verbose $WORK
+            rm -rf --verbose $UPPER
+
+            mkdir -p $MERGED
+            mkdir -p $WORK
+            mkdir -p $UPPER
+
+            chown root:root $MERGED
+            chmod 700 $MERGED
+
+            chown root:root $UPPER
+            chmod 700 $UPPER
+
+            chown root:root $WORK
+            chmod 700 $WORK
           '';
           serviceConfig = {
             Type = "oneshot";
@@ -312,20 +325,6 @@ in
               mode = "0700";
             };
           };
-          "/data/overlay/${vm.name}/upper/" = {
-            d = {
-              user = "root";
-              group = "root";
-              mode = "0700";
-            };
-          };
-          "/data/overlay/${vm.name}/work" = {
-            d = {
-              user = "root";
-              group = "root";
-              mode = "0700";
-            };
-          };
         };
       }) vmList)
     );
@@ -338,6 +337,7 @@ in
       "d '${cacheDir}/ccache'          0700 'microvm' 'root' - -"
       "d '${cacheDir}/prev_releases'   0700 'microvm' 'root' - -"
       "d '${cacheDir}/docker'          0700 'microvm' 'root' - -"
+      "f '${cacheDir}/.this-file-should-exist' 0700 'microvm' 'root' - -"
     ];
 
     services.prometheus.scrapeConfigs = (

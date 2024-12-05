@@ -74,13 +74,13 @@
                 vms = {
                   small = {
                     count = 6;
-                    cpu = 4;
-                    memory = 8;
+                    cpu = 5;
+                    memory = 20;
                   };
                   medium = {
                     count = 4;
                     cpu = 8;
-                    memory = 12;
+                    memory = 20;
                   };
                 };
               };
