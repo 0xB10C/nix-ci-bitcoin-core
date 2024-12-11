@@ -52,14 +52,6 @@ in
         }
       ];
       volumes = [
-        # {
-        #   # this is an ext4 volume, but we repurpose it as swap using a systemd
-        #   # service
-        #   mountPoint = "/swap";
-        #   image = "swap.img";
-        #   label = "swap";
-        #   size = swapDiskSize * 1024;
-        # }
         {
           mountPoint = "/home/cirrus-worker";
           image = "cirrus-worker-home.img";
@@ -79,6 +71,14 @@ in
           host.port = (9500 + id);
           guest.port = 9002;
         }
+        # forward VM port 5000 to port 5000 on the host (docker registry)
+        {
+          from = "guest";
+          guest.address = "10.0.2.10";
+          guest.port = 5000;
+          host.address = "127.0.0.1";
+          host.port = 5000;
+        }
       ];
       interfaces = [
         {
@@ -88,21 +88,6 @@ in
         }
       ];
     };
-
-    # repurpose the /swap ext4 volume as swap
-    # systemd.services.make-swap-on-volume = {
-    #   description = "repurpose /swap (ext4) as swap";
-    #   wantedBy = [ "multi-user.target" ];
-    #   script = ''
-    #     ${pkgs.busybox}/bin/umount /dev/disk/by-label/swap
-    #     ${pkgs.busybox}/bin/mkswap /dev/disk/by-label/swap -L swap
-    #     ${pkgs.busybox}/bin/swapon LABEL=swap
-    #     echo "swap on LABEL=swap $(free -h)"
-    #   '';
-    #   serviceConfig = {
-    #     Type = "oneshot";
-    #   };
-    # };
 
     # check that /persist isn't empty. If it is empty, this indicates a
     # problem with the overlay mount on the host. The VM needs to shutdown.
@@ -145,9 +130,23 @@ in
         daemon.settings = {
           dns = [ "8.8.8.8" "1.1.1.1" ];
           data-root = "/home/cirrus-worker/docker";
+          registry-mirrors = [ "http://10.0.2.2:5001/" ];
+          insecure-registries = [ "10.0.2.2:5001"   ];
           features = {
             containerd-snapshotter = true;
           };
+        };
+      };
+    };
+    systemd.user.services.docker.environment.DOCKERD_ROOTLESS_ROOTLESSKIT_DISABLE_HOST_LOOPBACK = "false";
+
+
+    services.dockerRegistry = {
+      enable = true;
+      port = 5001;
+      extraConfig = {
+        proxy = {
+          remoteurl = "http://10.0.2.10:5000/";
         };
       };
     };

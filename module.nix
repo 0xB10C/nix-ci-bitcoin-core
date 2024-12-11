@@ -168,118 +168,125 @@ in
           after = [ "data-overlay-${vm.name}-merged.mount" ];
           requires = [ "data-overlay-${vm.name}-merged.mount" ];
           serviceConfig = {
-            # before the VM starts, remove all disk images
             ExecStartPre = [
-              "${pkgs.writeShellScript "start-pre-cleaning-up-cache.sh" ''
-                echo "running start-pre-cleaning-up-cache.sh for ${vm.name}"
-                SOURCE="/data/vm-cache/${vm.name}"
+              "${pkgs.writeShellScript "start-pre-cleaning-up-upper.sh" ''
+                echo "running start-pre-cleaning-up-upper.sh for ${vm.name}"
+                set -o xtrace
+                SOURCE="/data/overlay/${vm.name}/upper"
                 if [ -d "$SOURCE" ]; then
                   echo "cleaning up files in $SOURCE"
                   rm -rf $SOURCE/*
                   echo "done cleaning up files in $SOURCE: $(ls $SOURCE)"
                 fi
               ''}"
+              # before the VM starts, remove all disk images
               "${pkgs.writeShellScript "start-pre-cleaning-up-disk-images.sh" ''
                 echo "running start-pre-cleaning-up-disk-images.sh for ${vm.name}"
+                set -o xtrace
                 rm /var/lib/microvms/${vm.name}/*.img || true
               ''}"
             ];
 
             # after the VM stops, copy cache data and clean up
             ExecStopPost = [
-              "${pkgs.writeShellScript "copy-new-ccache-entries.sh" ''
-                echo "running 01 copy-new-ccache-entries.sh for ${vm.name}"
-                SOURCE="/data/vm-cache/${vm.name}/ccache"
-                DEST="${cacheDir}/ccache"
-                if [ -d "$SOURCE" ]; then
-                  echo "removing lock and stats files from $SOURCE"
-                  rm -rf $SOURCE/lock
-                  rm -rf $SOURCE/*/stats
-                  rm -rf $SOURCE/*/*/stats
-                  echo "copying non-existing ccache files from $SOURCE to $DEST"
-                  cp -n -R $SOURCE/* $DEST/ --verbose
-                fi
-              ''}"
-              "${pkgs.writeShellScript "copy-new-built-depends.sh" ''
-                echo "running 02 copy-new-built-depends.sh for ${vm.name}"
-                SOURCE="/data/vm-cache/${vm.name}/depends/built"
-                DEST="${cacheDir}/depends/built"
-                if [ -d "$SOURCE" ]; then
-                  echo "copying newly built depends from $SOURCE to $DEST"
-                  cp -n -R $SOURCE/* $DEST/ --verbose
-                fi
-              ''}"
-              "${pkgs.writeShellScript "copy-new-depends-sources.sh" ''
-                echo "running 03 copy-new-depends-sources.sh for ${vm.name}"
-                SOURCE="/data/vm-cache/${vm.name}/depends/sources/"
-                DEST="${cacheDir}/depends/sources/"
-                if [ -d "$SOURCE" ]; then
-                  echo "copying new depends sources from $SOURCE to $DEST"
-                  cp -n -R $SOURCE/* $DEST/ --verbose
-                fi
-              ''}"
-              "${pkgs.writeShellScript "copy-new-prev_releases.sh" ''
-                echo "running 04 copy-new-prev_releases.sh for ${vm.name}"
-                SOURCE="/data/vm-cache/${vm.name}/prev_releases/"
-                DEST="${cacheDir}/prev_releases/"
-                if [ -d "$SOURCE" ]; then
-                  echo "copying new prev_releases files from $SOURCE to $DEST"
-                  cp -n -R $SOURCE/* $DEST/ --verbose
-                fi
-              ''}"
-              "${pkgs.writeShellScript "move-docker-image-cache.sh" ''
-                echo "running 05 move-docker-image-cache.sh for ${vm.name}"
-                set -o xtrace
-                SOURCE="/data/vm-cache/${vm.name}/docker"
-                DEST="${cacheDir}/docker/"
-                if [ -d "$SOURCE" ]; then
-                  for path in "$SOURCE"/*; do
-                    image=$(basename "$path")
-                    if [ -d "$SOURCE/$image" ]; then
-                      if [ -e "$SOURCE/$image/index.json" ]; then
-                        echo "removing existing cache for: $image"
-                        rm -rf "$DEST/$image" --verbose
-                        echo "moving docker files from $SOURCE/$image to $DEST"
-                        mv "$SOURCE/$image" "$DEST" --verbose
-                      fi
-                    fi
-                  done
-                fi
-              ''}"
-              "${pkgs.writeShellScript "cleaning-up-cache.sh" ''
-                echo "running 06 cleaning-up-cache.sh for ${vm.name}"
-                SOURCE="/data/vm-cache/${vm.name}"
-                if [ -d "$SOURCE" ]; then
-                  echo "cleaning up files in $SOURCE"
-                  rm -rf $SOURCE/*
-                  echo "done cleaning up files in $SOURCE: $(ls $SOURCE)"
-                fi
-              ''}"
+              # "${pkgs.writeShellScript "copy-new-ccache-entries.sh" ''
+              #   echo "running 01 copy-new-ccache-entries.sh for ${vm.name}"
+              #   set -o xtrace
+              #   SOURCE="/data/overlay/${vm.name}/upper/ccache"
+              #   DEST="${cacheDir}/ccache"
+              #   if [ -d "$SOURCE" ]; then
+              #     echo "removing lock and stats files from $SOURCE"
+              #     rm -rf $SOURCE/lock
+              #     rm -rf $SOURCE/*/stats
+              #     rm -rf $SOURCE/*/*/stats
+              #     echo "copying non-existing ccache files from $SOURCE to $DEST"
+              #     cp -n -R $SOURCE/* $DEST/ --verbose
+              #   fi
+              # ''}"
+              # "${pkgs.writeShellScript "copy-new-built-depends.sh" ''
+              #   echo "running 02 copy-new-built-depends.sh for ${vm.name}"
+              #   set -o xtrace
+              #   SOURCE="/data/overlay/${vm.name}/upper/depends/built"
+              #   DEST="${cacheDir}/depends/built"
+              #   if [ -d "$SOURCE" ]; then
+              #     echo "copying newly built depends from $SOURCE to $DEST"
+              #     cp -n -R $SOURCE/* $DEST/ --verbose
+              #   fi
+              # ''}"
+              # "${pkgs.writeShellScript "copy-new-depends-sources.sh" ''
+              #   echo "running 03 copy-new-depends-sources.sh for ${vm.name}"
+              #   set -o xtrace
+              #   SOURCE="/data/overlay/${vm.name}/upper/depends/sources/"
+              #   DEST="${cacheDir}/depends/sources/"
+              #   if [ -d "$SOURCE" ]; then
+              #     echo "copying new depends sources from $SOURCE to $DEST"
+              #     cp -n -R $SOURCE/* $DEST/ --verbose
+              #   fi
+              # ''}"
+              # "${pkgs.writeShellScript "copy-new-prev_releases.sh" ''
+              #   echo "running 04 copy-new-prev_releases.sh for ${vm.name}"
+              #   set -o xtrace
+              #   SOURCE="/data/overlay/${vm.name}/upper/prev_releases/"
+              #   DEST="${cacheDir}/prev_releases/"
+              #   if [ -d "$SOURCE" ]; then
+              #     echo "copying new prev_releases files from $SOURCE to $DEST"
+              #     cp -n -R $SOURCE/* $DEST/ --verbose
+              #   fi
+              # ''}"
+              # "${pkgs.writeShellScript "move-docker-image-cache.sh" ''
+              #   echo "running 05 move-docker-image-cache.sh for ${vm.name}"
+              #   set -o xtrace
+              #   SOURCE="/data/overlay/${vm.name}/upper/docker"
+              #   DEST="${cacheDir}/docker/"
+              #   if [ -d "$SOURCE" ]; then
+              #     for path in "$SOURCE"/*; do
+              #       image=$(basename "$path")
+              #       if [ -d "$SOURCE/$image" ]; then
+              #         if [ -e "$SOURCE/$image/index.json" ]; then
+              #           echo "removing existing cache for: $image"
+              #           rm -rf "$DEST/$image" --verbose
+              #           echo "moving docker files from $SOURCE/$image to $DEST"
+              #           mv "$SOURCE/$image" "$DEST" --verbose
+              #         fi
+              #       fi
+              #     done
+              #   fi
+              # ''}"
+              # "${pkgs.writeShellScript "cleaning-up-cache.sh" ''
+              #   echo "running 06 cleaning-up-cache.sh for ${vm.name}"
+              #   set -o xtrace
+              #   SOURCE="/data/overlay/${vm.name}/upper"
+              #   if [ -d "$SOURCE" ]; then
+              #     echo "cleaning up files in $SOURCE"
+              #     rm -rf $SOURCE/*
+              #     echo "done cleaning up files in $SOURCE: $(ls $SOURCE)"
+              #   fi
+              # ''}"
             ];
           };
         };
       }) vmList))
-      // (builtins.listToAttrs (map (vm: {
-        name = "bindfs-mount-upper-${vm.name}";
-        value = {
-          description = "bindfs mount owned by microvm for the ${vm.name}'s /cache dir";
-          after = [ "local-fs.target" ];
-          wantedBy = [ "multi-user.target" ];
-          serviceConfig = {
-            ExecStartPre = [
-              "${pkgs.writeShellScript "create-${vm.name}-cache-dir.sh" ''
-                echo "creating vm-cache dir for ${vm.name}"
-                mkdir -p /data/vm-cache/${vm.name}
-                chown microvm:kvm /data/vm-cache/${vm.name} -R
-                chmod 700 /data/vm-cache/${vm.name} -R
-              ''}"
-            ];
-            ExecStart = "${pkgs.bindfs}/bin/bindfs --force-user=microvm /data/overlay/${vm.name}/upper/ /data/vm-cache/${vm.name}";
-            ExecStop = "umount /data/vm-cache/${vm.name}";
-            RemainAfterExit = true;
-          };
-        };
-      }) vmList))
+      # // (builtins.listToAttrs (map (vm: {
+      #   name = "bindfs-mount-upper-${vm.name}";
+      #   value = {
+      #     description = "bindfs mount owned by microvm for the ${vm.name}'s /cache dir";
+      #     after = [ "local-fs.target" ];
+      #     wantedBy = [ "multi-user.target" ];
+      #     serviceConfig = {
+      #       ExecStartPre = [
+      #         "${pkgs.writeShellScript "create-${vm.name}-cache-dir.sh" ''
+      #           echo "creating vm-cache dir for ${vm.name}"
+      #           mkdir -p /data/vm-cache/${vm.name}
+      #           chown microvm:kvm /data/vm-cache/${vm.name} -R
+      #           chmod 700 /data/vm-cache/${vm.name} -R
+      #         ''}"
+      #       ];
+      #       ExecStart = "${pkgs.bindfs}/bin/bindfs --force-user=microvm /data/overlay/${vm.name}/upper/ /data/vm-cache/${vm.name}";
+      #       ExecStop = "umount /data/vm-cache/${vm.name}";
+      #       RemainAfterExit = true;
+      #     };
+      #   };
+      # }) vmList))
       // (builtins.listToAttrs (map (vm: {
         name = "clean-overlay-dirs-${vm.name}";
         value = {
@@ -287,12 +294,85 @@ in
           wantedBy = [ "data-overlay-${vm.name}-merged.mount" ]; # Ensure this runs before the mount
           before = [ "data-overlay-${vm.name}-merged.mount" ];
           script = ''
+            set -o xtrace
+
             MERGED="/data/overlay/${vm.name}/merged"
             WORK="/data/overlay/${vm.name}/work"
             UPPER="/data/overlay/${vm.name}/upper"
 
+            echo "running 01 copy-new-ccache-entries.sh for ${vm.name}"
+            SOURCE="/data/overlay/${vm.name}/upper/ccache"
+            DEST="${cacheDir}/ccache"
+            if [ -d "$SOURCE" ]; then
+              echo "removing lock and stats files from $SOURCE"
+              rm -rf $SOURCE/lock
+              rm -rf $SOURCE/*/stats
+              rm -rf $SOURCE/*/*/stats
+              echo "copying non-existing ccache files from $SOURCE to $DEST"
+              cp -n -R $SOURCE/* $DEST/ --verbose
+            fi
+
+            echo "running 02 copy-new-built-depends.sh for ${vm.name}"
+            SOURCE="/data/overlay/${vm.name}/upper/depends/built"
+            DEST="${cacheDir}/depends/built"
+            if [ -d "$SOURCE" ]; then
+              echo "copying newly built depends from $SOURCE to $DEST"
+              cp -n -R $SOURCE/* $DEST/ --verbose
+            fi
+
+            echo "running 03 copy-new-depends-sources.sh for ${vm.name}"
+            SOURCE="/data/overlay/${vm.name}/upper/depends/sources/"
+            DEST="${cacheDir}/depends/sources/"
+            if [ -d "$SOURCE" ]; then
+              echo "copying new depends sources from $SOURCE to $DEST"
+              cp -n -R $SOURCE/* $DEST/ --verbose
+            fi
+
+            echo "running 04 copy-new-prev_releases.sh for ${vm.name}"
+            SOURCE="/data/overlay/${vm.name}/upper/prev_releases/"
+            DEST="${cacheDir}/prev_releases/"
+            if [ -d "$SOURCE" ]; then
+              echo "copying new prev_releases files from $SOURCE to $DEST"
+              cp -n -R $SOURCE/* $DEST/ --verbose
+            fi
+
+            echo "running 05 move-docker-ci-image-cache.sh for ${vm.name}"
+            SOURCE="/data/overlay/${vm.name}/upper/docker/ci-imgs"
+            DEST="${cacheDir}/docker/ci-imgs"
+            if [ -d "$SOURCE" ]; then
+              for path in "$SOURCE"/*; do
+                image=$(basename "$path")
+                if [ -d "$SOURCE/$image" ]; then
+                  if [ -e "$SOURCE/$image/index.json" ]; then
+                    echo "removing existing cache for: $image"
+                    rm -rf "$DEST/$image" --verbose
+                    echo "moving docker files from $SOURCE/$image to $DEST"
+                    mv "$SOURCE/$image" "$DEST" --verbose
+                  fi
+                fi
+              done
+            fi
+
+            echo "running 06 copy-docker-base-images.sh for ${vm.name}"
+            SOURCE="/data/overlay/${vm.name}/upper/docker/base-imgs"
+            DEST="${cacheDir}/docker/base-imgs"
+            if [ -d "$SOURCE" ]; then
+              echo "copying new docker base-imgs from $SOURCE to $DEST"
+              cp -n -R $SOURCE/* $DEST/ --verbose
+            fi
+
+            echo "running 07 cleaning-up-cache.sh for ${vm.name}"
+            SOURCE="/data/overlay/${vm.name}/upper"
+            if [ -d "$SOURCE" ]; then
+              echo "cleaning up files in $SOURCE"
+              rm -rf $SOURCE/*
+              echo "done cleaning up files in $SOURCE: $(ls $SOURCE)"
+            fi
+
             rm -rf --verbose $MERGED
             rm -rf --verbose $WORK
+
+            # TODO: do we want to remove upper?
             rm -rf --verbose $UPPER
 
             mkdir -p $MERGED
@@ -302,7 +382,7 @@ in
             chown root:root $MERGED
             chmod 700 $MERGED
 
-            chown root:root $UPPER
+            chown microvm:kvm $UPPER
             chmod 700 $UPPER
 
             chown root:root $WORK
@@ -318,7 +398,7 @@ in
       builtins.listToAttrs (map (vm: {
         name = "${vm.name}";
         value = {
-          "/data/vm-cache/${vm.name}/" = {
+          "/data/overlay/${vm.name}/upper/" = {
             d = {
               user = "microvm";
               group = "kvm";
@@ -337,6 +417,8 @@ in
       "d '${cacheDir}/ccache'          0700 'microvm' 'root' - -"
       "d '${cacheDir}/prev_releases'   0700 'microvm' 'root' - -"
       "d '${cacheDir}/docker'          0700 'microvm' 'root' - -"
+      "d '${cacheDir}/docker/base-imgs' 0700 'microvm' 'root' - -"
+      "d '${cacheDir}/docker/ci-imgs'   0700 'microvm' 'root' - -"
       "f '${cacheDir}/.this-file-should-exist' 0700 'microvm' 'root' - -"
     ];
 
@@ -346,6 +428,16 @@ in
         static_configs = [ { targets = [ "127.0.0.1:${toString (9500 + vm.id)}" ]; } ];
       }) vmList
     );
+
+    services.dockerRegistry = {
+      enable = true;
+      port = 5000;
+      extraConfig = {
+        proxy = {
+          remoteurl = "https://registry-1.docker.io";
+        };
+      };
+    };
 
     environment.systemPackages = [
       pkgs.htop

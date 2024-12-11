@@ -34,9 +34,10 @@
           modules = [
             disko.nixosModules.disko
             microvm.nixosModules.host
-            ./host/host.nix
             ./disk-config-single-nvme.nix
             ./hardware-configuration-dev.nix
+            ./module.nix
+            ./base.nix
             {
               networking.hostName = name;
               boot.loader.grub.devices = [
@@ -45,6 +46,17 @@
               boot.loader.grub.enable = true;
               boot.loader.grub.efiSupport = true;
               boot.loader.grub.efiInstallAsRemovable = true;
+              services.cirrus-ephemeral-vm-runner = {
+                enable = true;
+                name = "dev";
+                vms = {
+                  small = {
+                    count = 1;
+                    cpu = 6;
+                    memory = 10;
+                  };
+                };
+              };
             }
           ];
         };
@@ -74,7 +86,7 @@
                 vms = {
                   small = {
                     count = 6;
-                    cpu = 5;
+                    cpu = 4;
                     memory = 20;
                   };
                   medium = {

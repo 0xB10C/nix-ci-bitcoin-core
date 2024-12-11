@@ -87,26 +87,82 @@ in
       description = "Cirrus CI Worker";
       after = [
         "network-online.target"
-        "docker.service"
         "setup-cirrus-worker-config.service"
       ];
       wants = [
         "network-online.target"
-        "setup-cirrus-worker-config.service"
-        "docker.service"
+        "dockerd-rootless.service"
       ];
       wantedBy = [ "multi-user.target" ];
       # TODO: more hardening!!
       serviceConfig = {
+        ExecStartPre = [
+          "${pkgs.writeShellScript "wait-for-docker.sh" ''
+            set -o xtrace
+            FILE_TO_CHECK="/run/user/8333/docker.sock"
+            # Number of attempts
+            MAX_ATTEMPTS=20
+
+            # Counter for attempts
+            attempt=0
+
+            while [[ $attempt -lt $MAX_ATTEMPTS ]]
+            do
+                if [[ -e "$FILE_TO_CHECK" ]]; then
+                    echo "File exists: $FILE_TO_CHECK"
+                    exit 0
+                else
+                    echo "Attempt $((attempt + 1)): File does not exist. Retrying in 1 second..."
+                fi
+                sleep 1
+                ((attempt++))
+            done
+            exit 1
+          ''}"
+          "${pkgs.writeShellScript "load-docker-images.sh" ''
+            set -o xtrace
+            DIRECTORY="/cache/docker/base-imgs"
+            # ensure we sort the base images. They start with the date they were
+            # created, which means newer images are tagged later. This sets the
+            # tag on the newer image (as the old tag is overwritten with the second)
+            # `docker tag`
+            export LC_COLLATE=C
+            for FILE in $(ls "$DIRECTORY" | sort); do
+              if [ -f "$DIRECTORY/$FILE" ]; then
+                ${pkgs.docker}/bin/docker load --input $DIRECTORY/$FILE || true
+                base=$(basename $FILE)
+                id=$(echo $base | sed 's/\.tar//g' | ${pkgs.gawk}/bin/awk -F "+" '{print $4}')
+                tag=$(echo $base | ${pkgs.gawk}/bin/awk -F "+" '{print $2 ":" $3}' | tr '@' '/')
+                ${pkgs.docker}/bin/docker tag $id $tag || true
+              fi
+            done
+          ''}"
+        ];
         ExecStart = "${pkgs.bash}/bin/bash -c '${patched-cirrus-cli}/bin/cirrus worker run --file ${VM_CONFIG_FILE_PATH} --name ${cfg.name} --labels type=${cfg.size} --ephemeral'";
         ExecStartPost = "${pkgs.bash}/bin/bash -c 'sleep 2 && ${pkgs.coreutils}/bin/rm ${VM_CONFIG_FILE_PATH} && echo \"removed cirrus worker config file ${VM_CONFIG_FILE_PATH}\"'";
         ExecStopPost = [
+          "${pkgs.writeShellScript "save-docker-images.sh" ''
+            set -o xtrace
+            images=$(docker images --format "{{.Repository}}:{{.Tag}}" | grep -v "ci_")
+            for image in $images; do
+              creation_date=$(docker images --format '{{.CreatedAt}}' $image | ${pkgs.gawk}/bin/awk -F " " '{print $1}')
+              repo_tag_id=$(docker images --format '{{.Repository}}+{{.Tag}}+{{.ID}}' $image | tr '/' '@')
+              filename="$creation_date+$repo_tag_id.tar"
+              if [ ! -f "/cache/docker/base-imgs/$filename" ]; then
+                docker save -o "/cache/docker/base-imgs/$filename" "$image" && echo "Saved $image to $filename.tar"
+              fi
+            done
+          ''}"
           # after the process ended, wait 5 seconds and then shut down the VM
           "${pkgs.bash}/bin/bash -c 'sleep 5 && /run/wrappers/bin/vm-shutdown now'"
         ];
         User = CIRRUS_WORKER_USER;
         Group = CIRRUS_WORKER_GROUP;
         WorkingDirectory = CIRRUS_WORKER_HOME;
+        # Loading the docker images can take a while if all VMs load them at
+        # the same time. To avoid the cirrus-worker failing to start, time out
+        # only after 300 secs.
+        TimeoutStartSec = "300";
       };
       environment = {
         XDG_CACHE_HOME = "${CIRRUS_WORKER_HOME}/.cache";
@@ -138,7 +194,7 @@ in
         # and are symlinked to the expected locations below.
         DANGER_CI_ON_HOST_CACHE_FOLDERS = "true";
         # Set the extra docker build arguments to cache the build steps
-        DOCKER_BUILD_CACHE_HOST_DIR = "/cache/docker";
+        DOCKER_BUILD_CACHE_HOST_DIR = "/cache/docker/ci-imgs";
       };
     };
 
