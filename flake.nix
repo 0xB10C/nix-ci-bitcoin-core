@@ -2,13 +2,9 @@
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
   inputs.disko.url = "github:nix-community/disko";
   inputs.disko.inputs.nixpkgs.follows = "nixpkgs";
-  inputs.microvm = {
-    url = "github:astro/microvm.nix";
-    inputs.nixpkgs.follows = "nixpkgs";
-  };
 
   outputs =
-    { nixpkgs, disko, microvm, ... }:
+    { nixpkgs, disko, ... }:
 
     let
       x86_64 = "x86_64-linux";
@@ -18,12 +14,27 @@
           system = arch;
           modules = [
             disko.nixosModules.disko
-            microvm.nixosModules.host
             ./host/host.nix
             ./disk-config-dual-nvme.nix
             ./dedicated-hardware-configuration.nix
             {
               networking.hostName = name;
+              services.cirrus-ephemeral-vm-runner = {
+                enable = true;
+                name = "big";
+                vms = {
+                  small = {
+                    count = 1;
+                    cpu = 4;
+                    memory = 20;
+                  };
+                  medium = {
+                    count = 1;
+                    cpu = 8;
+                    memory = 20;
+                  };
+                };
+              };
             }
           ];
         };
@@ -33,7 +44,6 @@
           system = arch;
           modules = [
             disko.nixosModules.disko
-            microvm.nixosModules.host
             ./disk-config-single-nvme.nix
             ./hardware-configuration-dev.nix
             ./module.nix
@@ -66,7 +76,6 @@
           system = arch;
           modules = [
             disko.nixosModules.disko
-            microvm.nixosModules.host
             ./disk-config-single-disk.nix
             ./hardware-configuration-big.nix
             ./module.nix
@@ -85,7 +94,7 @@
                 name = "big";
                 vms = {
                   small = {
-                    count = 6;
+                    count = 5;
                     cpu = 4;
                     memory = 20;
                   };

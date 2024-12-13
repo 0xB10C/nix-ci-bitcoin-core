@@ -2,14 +2,13 @@
   pkgs,
   lib,
   config,
-  microvm,
+  modulesPath,
   ...
 }:
 
 let
+  mkQemu = (import ./vm/vm.nix { inherit pkgs config modulesPath; });
   cacheDir = "/data/cache";
-
-  mkVM = (import ./vm/vm.nix { inherit pkgs config microvm; });
   cfg = config.services.cirrus-ephemeral-vm-runner;
   vmList =
     (builtins.genList (i: {
@@ -24,10 +23,7 @@ let
     }) cfg.vms.medium.count);
 in
 {
-
-  imports = [
-    ./host/monitoring.nix
-  ];
+  imports = [ ./host/monitoring.nix ];
 
   options = {
     services.cirrus-ephemeral-vm-runner = {
@@ -111,7 +107,7 @@ in
         Host ${vm.name}
           HostName 127.0.0.1
           Port ${toString (2000 + vm.id)}
-          User root
+          User alice
           StrictHostKeyChecking no
           UserKnownHostsFile /dev/null
       '') vmList
@@ -122,304 +118,247 @@ in
     # for each VM and are restarted (and re-created) each
     # time the VM is restarted. This is needed to ensure
     # the overlayFS is still properly mounted.
-    # The clean-overlay-dirs-* services (see below)
-    # will clean the merged dir up before it's re-mounted.
     systemd.mounts = (
       map (vm: {
         enable = true;
-        where = "/data/overlay/${vm.name}/merged";
+        where = "/var/lib/cirrusvm/${vm.name}/overlay/merged";
         type = "overlay";
         what = "overlay";
-        options = "lowerdir=${cacheDir},upperdir=/data/overlay/${vm.name}/upper,workdir=/data/overlay/${vm.name}/work";
-        partOf = [ "microvm@${vm.name}.service" ];
-        before = [ "microvm@${vm.name}.service" ];
+        options = "lowerdir=${cacheDir},upperdir=/var/lib/cirrusvm/${vm.name}/overlay/upper,workdir=/var/lib/cirrusvm/${vm.name}/overlay/work";
+        partOf = [ "cirrus-${vm.name}.service" ];
+        before = [ "cirrus-${vm.name}.service" ];
         wantedBy = [ "multi-user.target" ];
       }) vmList
     );
 
-    # create the actual microvm definitions for the VMs
-    microvm.vms = builtins.trace (
-      ''
-        Deploying:
-
-        - ${toString cfg.vms.small.count}x small VMs: using ${toString (cfg.vms.small.count * cfg.vms.small.cpu)} threads & ${toString (cfg.vms.small.count * cfg.vms.small.memory)} GB
-        - ${toString cfg.vms.medium.count}x medium VMs: using ${toString (cfg.vms.medium.count * cfg.vms.medium.cpu)} threads & ${toString (cfg.vms.medium.count * cfg.vms.medium.memory)} GB
-        TOTAL: ${toString (cfg.vms.small.count * cfg.vms.small.cpu + cfg.vms.medium.count * cfg.vms.medium.cpu)} threads & ${toString (cfg.vms.small.count * cfg.vms.small.memory + cfg.vms.medium.count * cfg.vms.medium.memory)} GB
-      ''
-      )
-      (
-      builtins.listToAttrs (map (vm: {
-        name = vm.name;
-        value = mkVM {
-          id = vm.id;
-          name = vm.name;
-          size = vm.size;
-          runner_name = cfg.name;
-          memory = cfg.vms."${vm.size}".memory;
-          cpu = cfg.vms."${vm.size}".cpu;
-        };
-      }) vmList)
-    );
-
     systemd.services =
-      (builtins.listToAttrs (map (vm: {
-        name = "microvm@${vm.name}";
+      builtins.trace
+        (''
+          Deploying:
+
+          - ${toString cfg.vms.small.count}x small VMs: using ${
+            toString (cfg.vms.small.count * cfg.vms.small.cpu)
+          } threads & ${toString (cfg.vms.small.count * cfg.vms.small.memory)} GB
+          - ${toString cfg.vms.medium.count}x medium VMs: using ${
+            toString (cfg.vms.medium.count * cfg.vms.medium.cpu)
+          } threads & ${toString (cfg.vms.medium.count * cfg.vms.medium.memory)} GB
+          TOTAL: ${
+            toString (cfg.vms.small.count * cfg.vms.small.cpu + cfg.vms.medium.count * cfg.vms.medium.cpu)
+          } threads & ${
+            toString (cfg.vms.small.count * cfg.vms.small.memory + cfg.vms.medium.count * cfg.vms.medium.memory)
+          } GB
+        '')
+        (
+          builtins.listToAttrs (
+            map (vm: {
+              name = "cirrus-${vm.name}";
+              value = {
+                after = [ "var-lib-cirrusvm-${vm.name}-overlay-merged.mount" ];
+                requires = [ "var-lib-cirrusvm-${vm.name}-overlay-merged.mount" ];
+                wantedBy = [ "multi-user.target" ];
+                serviceConfig = {
+                  Restart = "always";
+                  User = "cirrus-${vm.name}";
+                  Group = "cirrus-vm";
+                  WorkingDirectory = "/var/lib/cirrusvm/${vm.name}/";
+                  ExecStart = "${pkgs.writeShellScript "start-vm-${vm.name}.sh" ''
+                    set -o xtrace
+
+                    # TODO: this should be clean?
+                    echo "STEP start-pre-cleaning-up-upper for ${vm.name}"
+                    SOURCE="/var/lib/cirrusvm/${vm.name}/overlay/upper"
+                    if [ -d "$SOURCE" ]; then
+                      echo "cleaning up files in $SOURCE"
+                      rm -rf --verbose $SOURCE/*
+                      echo "done cleaning up files in $SOURCE: $(ls $SOURCE)"
+                    fi
+
+                    echo "STEP start-pre-cleaning-up-disk-images for ${vm.name}"
+                    rm *.qcow2 || true
+
+                    echo "STEP copy-cirrus-worker-config for ${vm.name}"
+                    SOURCE="/etc/cirrus/worker.yml"
+                    DEST="/var/lib/cirrusvm/${vm.name}/config/"
+                    if [ -f "$SOURCE" ]; then
+                      echo "cleaning up files in $SOURCE"
+                      cp $SOURCE $DEST --verbose
+                    else
+                      echo "worker config not found: $SOURCE"
+                      exit 1
+                    fi
+
+                    echo "STEP start-vm for ${vm.name}"
+                    ${
+                      (lib.nixosSystem {
+                        system = "x86_64-linux";
+                        modules = [
+                          (mkQemu {
+                            id = vm.id;
+                            name = vm.name;
+                            size = vm.size;
+                            runner_name = cfg.name;
+                            memory = cfg.vms."${vm.size}".memory;
+                            cpu = cfg.vms."${vm.size}".cpu;
+                          })
+                        ];
+                      }).config.system.build.vm
+                    }/bin/run-${vm.name}-vm
+
+                    UPPER="/var/lib/cirrusvm/${vm.name}/overlay/upper"
+
+                    echo "STEP copy-new-ccache-entries for ${vm.name}"
+                    SOURCE="$UPPER/ccache"
+                    DEST="${cacheDir}/ccache"
+                    if [ -d "$SOURCE" ]; then
+                      echo "removing lock and stats files from $SOURCE"
+                      rm -rf $SOURCE/lock
+                      rm -rf $SOURCE/*/stats
+                      rm -rf $SOURCE/*/*/stats
+                      echo "copying non-existing ccache files from $SOURCE to $DEST"
+                      cp -n -R $SOURCE/* $DEST/ --verbose
+                    fi
+
+                    echo "STEP copy-new-built-depends for ${vm.name}"
+                    SOURCE="$UPPER/depends/built"
+                    DEST="${cacheDir}/depends/built"
+                    if [ -d "$SOURCE" ]; then
+                      echo "copying newly built depends from $SOURCE to $DEST"
+                      cp -n -R $SOURCE/* $DEST/ --verbose
+                    fi
+
+                    echo "STEP copy-new-depends-sources for ${vm.name}"
+                    SOURCE="$UPPER/depends/sources/"
+                    DEST="${cacheDir}/depends/sources/"
+                    if [ -d "$SOURCE" ]; then
+                      echo "copying new depends sources from $SOURCE to $DEST"
+                      cp -n -R $SOURCE/* $DEST/ --verbose
+                    fi
+
+                    echo "STEP copy-new-prev_releases for ${vm.name}"
+                    SOURCE="$UPPER/prev_releases/"
+                    DEST="${cacheDir}/prev_releases/"
+                    if [ -d "$SOURCE" ]; then
+                      echo "copying new prev_releases files from $SOURCE to $DEST"
+                      cp -n -R $SOURCE/* $DEST/ --verbose
+                    fi
+
+                    echo "STEP move-docker-ci-image-cache for ${vm.name}"
+                    SOURCE="$UPPER/docker/ci-imgs"
+                    DEST="${cacheDir}/docker/ci-imgs"
+                    if [ -d "$SOURCE" ]; then
+                      for path in "$SOURCE"/*; do
+                        image=$(basename "$path")
+                        if [ -d "$SOURCE/$image" ]; then
+                          if [ -e "$SOURCE/$image/index.json" ]; then
+                            echo "removing existing cache for: $image"
+                            rm -rf "$DEST/$image" --verbose
+                            echo "moving docker files from $SOURCE/$image to $DEST"
+                            mv "$SOURCE/$image" "$DEST" --verbose
+                          fi
+                        fi
+                      done
+                    fi
+
+                    echo "STEP copy-docker-base-images for ${vm.name}"
+                    SOURCE="$UPPER/docker/base-imgs"
+                    DEST="${cacheDir}/docker/base-imgs"
+                    if [ -d "$SOURCE" ]; then
+                      echo "copying new docker base-imgs from $SOURCE to $DEST"
+                      cp -n -R $SOURCE/* $DEST/ --verbose
+                    fi
+
+                    echo "STEP cleaning-up-cache for ${vm.name}"
+                    SOURCE="$UPPER"
+                    if [ -d "$SOURCE" ]; then
+                      echo "cleaning up files in $SOURCE"
+                      rm -rf $SOURCE/*
+                      echo "done cleaning up files in $SOURCE: $(ls $SOURCE)"
+                    fi
+                  ''}";
+                };
+              };
+            }) vmList
+          )
+        );
+
+    users.users = builtins.listToAttrs (
+      map (vm: {
+        name = "cirrus-${vm.name}";
         value = {
-          after = [ "data-overlay-${vm.name}-merged.mount" ];
-          requires = [ "data-overlay-${vm.name}-merged.mount" ];
-          serviceConfig = {
-            ExecStartPre = [
-              "${pkgs.writeShellScript "start-pre-cleaning-up-upper.sh" ''
-                echo "running start-pre-cleaning-up-upper.sh for ${vm.name}"
-                set -o xtrace
-                SOURCE="/data/overlay/${vm.name}/upper"
-                if [ -d "$SOURCE" ]; then
-                  echo "cleaning up files in $SOURCE"
-                  rm -rf $SOURCE/*
-                  echo "done cleaning up files in $SOURCE: $(ls $SOURCE)"
-                fi
-              ''}"
-              # before the VM starts, remove all disk images
-              "${pkgs.writeShellScript "start-pre-cleaning-up-disk-images.sh" ''
-                echo "running start-pre-cleaning-up-disk-images.sh for ${vm.name}"
-                set -o xtrace
-                rm /var/lib/microvms/${vm.name}/*.img || true
-              ''}"
-            ];
-
-            # after the VM stops, copy cache data and clean up
-            ExecStopPost = [
-              # "${pkgs.writeShellScript "copy-new-ccache-entries.sh" ''
-              #   echo "running 01 copy-new-ccache-entries.sh for ${vm.name}"
-              #   set -o xtrace
-              #   SOURCE="/data/overlay/${vm.name}/upper/ccache"
-              #   DEST="${cacheDir}/ccache"
-              #   if [ -d "$SOURCE" ]; then
-              #     echo "removing lock and stats files from $SOURCE"
-              #     rm -rf $SOURCE/lock
-              #     rm -rf $SOURCE/*/stats
-              #     rm -rf $SOURCE/*/*/stats
-              #     echo "copying non-existing ccache files from $SOURCE to $DEST"
-              #     cp -n -R $SOURCE/* $DEST/ --verbose
-              #   fi
-              # ''}"
-              # "${pkgs.writeShellScript "copy-new-built-depends.sh" ''
-              #   echo "running 02 copy-new-built-depends.sh for ${vm.name}"
-              #   set -o xtrace
-              #   SOURCE="/data/overlay/${vm.name}/upper/depends/built"
-              #   DEST="${cacheDir}/depends/built"
-              #   if [ -d "$SOURCE" ]; then
-              #     echo "copying newly built depends from $SOURCE to $DEST"
-              #     cp -n -R $SOURCE/* $DEST/ --verbose
-              #   fi
-              # ''}"
-              # "${pkgs.writeShellScript "copy-new-depends-sources.sh" ''
-              #   echo "running 03 copy-new-depends-sources.sh for ${vm.name}"
-              #   set -o xtrace
-              #   SOURCE="/data/overlay/${vm.name}/upper/depends/sources/"
-              #   DEST="${cacheDir}/depends/sources/"
-              #   if [ -d "$SOURCE" ]; then
-              #     echo "copying new depends sources from $SOURCE to $DEST"
-              #     cp -n -R $SOURCE/* $DEST/ --verbose
-              #   fi
-              # ''}"
-              # "${pkgs.writeShellScript "copy-new-prev_releases.sh" ''
-              #   echo "running 04 copy-new-prev_releases.sh for ${vm.name}"
-              #   set -o xtrace
-              #   SOURCE="/data/overlay/${vm.name}/upper/prev_releases/"
-              #   DEST="${cacheDir}/prev_releases/"
-              #   if [ -d "$SOURCE" ]; then
-              #     echo "copying new prev_releases files from $SOURCE to $DEST"
-              #     cp -n -R $SOURCE/* $DEST/ --verbose
-              #   fi
-              # ''}"
-              # "${pkgs.writeShellScript "move-docker-image-cache.sh" ''
-              #   echo "running 05 move-docker-image-cache.sh for ${vm.name}"
-              #   set -o xtrace
-              #   SOURCE="/data/overlay/${vm.name}/upper/docker"
-              #   DEST="${cacheDir}/docker/"
-              #   if [ -d "$SOURCE" ]; then
-              #     for path in "$SOURCE"/*; do
-              #       image=$(basename "$path")
-              #       if [ -d "$SOURCE/$image" ]; then
-              #         if [ -e "$SOURCE/$image/index.json" ]; then
-              #           echo "removing existing cache for: $image"
-              #           rm -rf "$DEST/$image" --verbose
-              #           echo "moving docker files from $SOURCE/$image to $DEST"
-              #           mv "$SOURCE/$image" "$DEST" --verbose
-              #         fi
-              #       fi
-              #     done
-              #   fi
-              # ''}"
-              # "${pkgs.writeShellScript "cleaning-up-cache.sh" ''
-              #   echo "running 06 cleaning-up-cache.sh for ${vm.name}"
-              #   set -o xtrace
-              #   SOURCE="/data/overlay/${vm.name}/upper"
-              #   if [ -d "$SOURCE" ]; then
-              #     echo "cleaning up files in $SOURCE"
-              #     rm -rf $SOURCE/*
-              #     echo "done cleaning up files in $SOURCE: $(ls $SOURCE)"
-              #   fi
-              # ''}"
-            ];
-          };
+          isNormalUser = true;
+          createHome = false;
+          group = "cirrus-vm";
         };
-      }) vmList))
-      # // (builtins.listToAttrs (map (vm: {
-      #   name = "bindfs-mount-upper-${vm.name}";
-      #   value = {
-      #     description = "bindfs mount owned by microvm for the ${vm.name}'s /cache dir";
-      #     after = [ "local-fs.target" ];
-      #     wantedBy = [ "multi-user.target" ];
-      #     serviceConfig = {
-      #       ExecStartPre = [
-      #         "${pkgs.writeShellScript "create-${vm.name}-cache-dir.sh" ''
-      #           echo "creating vm-cache dir for ${vm.name}"
-      #           mkdir -p /data/vm-cache/${vm.name}
-      #           chown microvm:kvm /data/vm-cache/${vm.name} -R
-      #           chmod 700 /data/vm-cache/${vm.name} -R
-      #         ''}"
-      #       ];
-      #       ExecStart = "${pkgs.bindfs}/bin/bindfs --force-user=microvm /data/overlay/${vm.name}/upper/ /data/vm-cache/${vm.name}";
-      #       ExecStop = "umount /data/vm-cache/${vm.name}";
-      #       RemainAfterExit = true;
-      #     };
-      #   };
-      # }) vmList))
-      // (builtins.listToAttrs (map (vm: {
-        name = "clean-overlay-dirs-${vm.name}";
-        value = {
-          description = "Clean /data/overlay/${vm.name}/merged before mounting";
-          wantedBy = [ "data-overlay-${vm.name}-merged.mount" ]; # Ensure this runs before the mount
-          before = [ "data-overlay-${vm.name}-merged.mount" ];
-          script = ''
-            set -o xtrace
-
-            MERGED="/data/overlay/${vm.name}/merged"
-            WORK="/data/overlay/${vm.name}/work"
-            UPPER="/data/overlay/${vm.name}/upper"
-
-            echo "running 01 copy-new-ccache-entries.sh for ${vm.name}"
-            SOURCE="/data/overlay/${vm.name}/upper/ccache"
-            DEST="${cacheDir}/ccache"
-            if [ -d "$SOURCE" ]; then
-              echo "removing lock and stats files from $SOURCE"
-              rm -rf $SOURCE/lock
-              rm -rf $SOURCE/*/stats
-              rm -rf $SOURCE/*/*/stats
-              echo "copying non-existing ccache files from $SOURCE to $DEST"
-              cp -n -R $SOURCE/* $DEST/ --verbose
-            fi
-
-            echo "running 02 copy-new-built-depends.sh for ${vm.name}"
-            SOURCE="/data/overlay/${vm.name}/upper/depends/built"
-            DEST="${cacheDir}/depends/built"
-            if [ -d "$SOURCE" ]; then
-              echo "copying newly built depends from $SOURCE to $DEST"
-              cp -n -R $SOURCE/* $DEST/ --verbose
-            fi
-
-            echo "running 03 copy-new-depends-sources.sh for ${vm.name}"
-            SOURCE="/data/overlay/${vm.name}/upper/depends/sources/"
-            DEST="${cacheDir}/depends/sources/"
-            if [ -d "$SOURCE" ]; then
-              echo "copying new depends sources from $SOURCE to $DEST"
-              cp -n -R $SOURCE/* $DEST/ --verbose
-            fi
-
-            echo "running 04 copy-new-prev_releases.sh for ${vm.name}"
-            SOURCE="/data/overlay/${vm.name}/upper/prev_releases/"
-            DEST="${cacheDir}/prev_releases/"
-            if [ -d "$SOURCE" ]; then
-              echo "copying new prev_releases files from $SOURCE to $DEST"
-              cp -n -R $SOURCE/* $DEST/ --verbose
-            fi
-
-            echo "running 05 move-docker-ci-image-cache.sh for ${vm.name}"
-            SOURCE="/data/overlay/${vm.name}/upper/docker/ci-imgs"
-            DEST="${cacheDir}/docker/ci-imgs"
-            if [ -d "$SOURCE" ]; then
-              for path in "$SOURCE"/*; do
-                image=$(basename "$path")
-                if [ -d "$SOURCE/$image" ]; then
-                  if [ -e "$SOURCE/$image/index.json" ]; then
-                    echo "removing existing cache for: $image"
-                    rm -rf "$DEST/$image" --verbose
-                    echo "moving docker files from $SOURCE/$image to $DEST"
-                    mv "$SOURCE/$image" "$DEST" --verbose
-                  fi
-                fi
-              done
-            fi
-
-            echo "running 06 copy-docker-base-images.sh for ${vm.name}"
-            SOURCE="/data/overlay/${vm.name}/upper/docker/base-imgs"
-            DEST="${cacheDir}/docker/base-imgs"
-            if [ -d "$SOURCE" ]; then
-              echo "copying new docker base-imgs from $SOURCE to $DEST"
-              cp -n -R $SOURCE/* $DEST/ --verbose
-            fi
-
-            echo "running 07 cleaning-up-cache.sh for ${vm.name}"
-            SOURCE="/data/overlay/${vm.name}/upper"
-            if [ -d "$SOURCE" ]; then
-              echo "cleaning up files in $SOURCE"
-              rm -rf $SOURCE/*
-              echo "done cleaning up files in $SOURCE: $(ls $SOURCE)"
-            fi
-
-            rm -rf --verbose $MERGED
-            rm -rf --verbose $WORK
-
-            # TODO: do we want to remove upper?
-            rm -rf --verbose $UPPER
-
-            mkdir -p $MERGED
-            mkdir -p $WORK
-            mkdir -p $UPPER
-
-            chown root:root $MERGED
-            chmod 700 $MERGED
-
-            chown microvm:kvm $UPPER
-            chmod 700 $UPPER
-
-            chown root:root $WORK
-            chmod 700 $WORK
-          '';
-          serviceConfig = {
-            Type = "oneshot";
-          };
-        };
-      }) vmList));
+      }) vmList
+    );
+    users.groups."cirrus-vm" = { };
 
     systemd.tmpfiles.settings = (
-      builtins.listToAttrs (map (vm: {
-        name = "${vm.name}";
-        value = {
-          "/data/overlay/${vm.name}/upper/" = {
-            d = {
-              user = "microvm";
-              group = "kvm";
-              mode = "0700";
+      builtins.listToAttrs (
+        map (vm: {
+          name = "${vm.name}";
+          value = {
+            "/var/lib/cirrusvm/${vm.name}/" = {
+              d = {
+                user = "cirrus-${vm.name}";
+                group = "cirrus-vm";
+                mode = "0700";
+              };
+            };
+            "/var/lib/cirrusvm/${vm.name}/overlay" = {
+              d = {
+                user = "cirrus-${vm.name}";
+                group = "cirrus-vm";
+                mode = "0700";
+              };
+            };
+            "/var/lib/cirrusvm/${vm.name}/config" = {
+              d = {
+                user = "cirrus-${vm.name}";
+                group = "cirrus-vm";
+                mode = "0700";
+              };
+            };
+            "/var/lib/cirrusvm/${vm.name}/overlay/upper/" = {
+              d = {
+                user = "cirrus-${vm.name}";
+                group = "cirrus-vm";
+                mode = "0700";
+              };
+            };
+            "/var/lib/cirrusvm/${vm.name}/overlay/merged/" = {
+              d = {
+                user = "cirrus-${vm.name}";
+                group = "cirrus-vm";
+                mode = "0700";
+              };
+            };
+            "/var/lib/cirrusvm/${vm.name}/overlay/work/" = {
+              d = {
+                user = "root";
+                group = "root";
+                mode = "0700";
+              };
             };
           };
-        };
-      }) vmList)
+        }) vmList
+      )
     );
 
     systemd.tmpfiles.rules = [
-      "d '${cacheDir}'                 0700 'microvm' 'root' - -"
-      "d '${cacheDir}/depends'         0700 'microvm' 'root' - -"
-      "d '${cacheDir}/depends/built'   0700 'microvm' 'root' - -"
-      "d '${cacheDir}/depends/sources' 0700 'microvm' 'root' - -"
-      "d '${cacheDir}/ccache'          0700 'microvm' 'root' - -"
-      "d '${cacheDir}/prev_releases'   0700 'microvm' 'root' - -"
-      "d '${cacheDir}/docker'          0700 'microvm' 'root' - -"
-      "d '${cacheDir}/docker/base-imgs' 0700 'microvm' 'root' - -"
-      "d '${cacheDir}/docker/ci-imgs'   0700 'microvm' 'root' - -"
-      "f '${cacheDir}/.this-file-should-exist' 0700 'microvm' 'root' - -"
+      "d '/var/lib/cirrusvm'                    770 'root' 'cirrus-vm' - -"
+      "d '${cacheDir}'                          770 'root' 'cirrus-vm' - -"
+      "d '${cacheDir}/depends'                  770 'root' 'cirrus-vm' - -"
+      "d '${cacheDir}/depends/built'            770 'root' 'cirrus-vm' - -"
+      "d '${cacheDir}/depends/sources'          770 'root' 'cirrus-vm' - -"
+      "d '${cacheDir}/ccache'                   770 'root' 'cirrus-vm' - -"
+      "d '${cacheDir}/prev_releases'            770 'root' 'cirrus-vm' - -"
+      "d '${cacheDir}/docker'                   770 'root' 'cirrus-vm' - -"
+      "d '${cacheDir}/docker/base-imgs'         770 'root' 'cirrus-vm' - -"
+      "d '${cacheDir}/docker/ci-imgs'           770 'root' 'cirrus-vm' - -"
+      "f '${cacheDir}/.this-file-should-exist'  770 'root' 'cirrus-vm' - -"
+      # set 770 on all existing assets
+      "Z '${cacheDir}/*'                        770 'root  'cirrus-vm' - -"
     ];
 
     services.prometheus.scrapeConfigs = (
@@ -428,16 +367,6 @@ in
         static_configs = [ { targets = [ "127.0.0.1:${toString (9500 + vm.id)}" ]; } ];
       }) vmList
     );
-
-    services.dockerRegistry = {
-      enable = true;
-      port = 5000;
-      extraConfig = {
-        proxy = {
-          remoteurl = "https://registry-1.docker.io";
-        };
-      };
-    };
 
     environment.systemPackages = [
       pkgs.htop

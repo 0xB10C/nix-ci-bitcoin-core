@@ -49,7 +49,7 @@ in
     # The cirrus worker gets its own temporary copy of the configuration file.
     # This file is removed after cirrus-cli has read it to ensure a CI script
     # can't read it, which would expose the runner token allowing to spawn
-    # mallicious workers.
+    # malicious workers.
     systemd.services.setup-cirrus-worker-config = {
       description = "Cirrus CI worker config creation";
       after = [ "network-online.target" ];
@@ -58,24 +58,13 @@ in
       ];
       wantedBy = [ "cirrus-worker.service" ];
       script = ''
-        # To protect against set up errors, check that the
-        # file is only readable by root. Otherwise, don't
-        # copy the config file.
-        FILE_OWNER=$(stat -c "%U" "${MOUNTED_CONFIG_FILE_PATH}")
-        FILE_PERMS=$(stat -c "%a" "${MOUNTED_CONFIG_FILE_PATH}")
-        if [ "$FILE_OWNER" != "root" ]; then
-          echo "${MOUNTED_CONFIG_FILE_PATH} is not owned by root (owner is $FILE_OWNER)"
-          exit 1
-        fi
-        if [ "$FILE_PERMS" != "600" ]; then
-          echo "${MOUNTED_CONFIG_FILE_PATH} permissions are not restricted to read-only by root: 0600 (permissions: $FILE_PERMS)"
-          exit 1
-        fi
-
         cp ${MOUNTED_CONFIG_FILE_PATH} ${VM_CONFIG_FILE_PATH}
         chown ${CIRRUS_WORKER_USER}:${CIRRUS_WORKER_GROUP} ${VM_CONFIG_FILE_PATH}
         chmod 600 ${VM_CONFIG_FILE_PATH}
         echo "Copied cirrus worker config file to ${VM_CONFIG_FILE_PATH} read-writable by ${CIRRUS_WORKER_USER}:${CIRRUS_WORKER_GROUP}"
+
+        chown root:root ${MOUNTED_CONFIG_FILE_PATH}
+        chmod 600 ${MOUNTED_CONFIG_FILE_PATH}
       '';
       serviceConfig = {
         Type = "oneshot";
@@ -141,6 +130,9 @@ in
         ExecStart = "${pkgs.bash}/bin/bash -c '${patched-cirrus-cli}/bin/cirrus worker run --file ${VM_CONFIG_FILE_PATH} --name ${cfg.name} --labels type=${cfg.size} --ephemeral'";
         ExecStartPost = "${pkgs.bash}/bin/bash -c 'sleep 2 && ${pkgs.coreutils}/bin/rm ${VM_CONFIG_FILE_PATH} && echo \"removed cirrus worker config file ${VM_CONFIG_FILE_PATH}\"'";
         ExecStopPost = [
+          # Schedule a shutdown in 5 minutes. Even if any other ExecStopPost script fails, the vm will shut down.
+          "/run/wrappers/bin/vm-shutdown +5"
+          # Save the docker base images
           "${pkgs.writeShellScript "save-docker-images.sh" ''
             set -o xtrace
             images=$(docker images --format "{{.Repository}}:{{.Tag}}" | grep -v "ci_")
@@ -149,7 +141,7 @@ in
               repo_tag_id=$(docker images --format '{{.Repository}}+{{.Tag}}+{{.ID}}' $image | tr '/' '@')
               filename="$creation_date+$repo_tag_id.tar"
               if [ ! -f "/cache/docker/base-imgs/$filename" ]; then
-                docker save -o "/cache/docker/base-imgs/$filename" "$image" && echo "Saved $image to $filename.tar"
+                docker save -o "/cache/docker/base-imgs/$filename" "$image" && echo "Saved $image to $filename.tar" || true
               fi
             done
           ''}"
@@ -230,20 +222,6 @@ in
     };
     users.groups."${CIRRUS_WORKER_GROUP}" = {
       gid = 8333;
-    };
-
-    # the /perist mount from the host is only read/writable by
-    # root. A bind mount to /cache for the cirrus-worker user
-    # makes it read/writable for the cirrus-worker user too.
-    systemd.services.bindfs-cache-mount = {
-      description = "bindfs mount for /cache";
-      after = [ "local-fs.target" ];
-      wantedBy = [ "multi-user.target" ];
-      serviceConfig = {
-        ExecStart = "${pkgs.bindfs}/bin/bindfs --force-user=${CIRRUS_WORKER_USER} --force-group=${CIRRUS_WORKER_GROUP} /persist /cache";
-        ExecStop = "umount /cache";
-        RemainAfterExit = true;
-      };
     };
 
     systemd.tmpfiles.rules = [
