@@ -14,9 +14,10 @@
           system = arch;
           modules = [
             disko.nixosModules.disko
-            ./host/host.nix
             ./disk-config-dual-nvme.nix
             ./dedicated-hardware-configuration.nix
+            ./module.nix
+            ./base.nix
             {
               networking.hostName = name;
               services.cirrus-ephemeral-vm-runner = {

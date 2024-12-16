@@ -158,7 +158,7 @@ in
                 wantedBy = [ "multi-user.target" ];
                 serviceConfig = {
                   Restart = "always";
-                  User = "cirrus-${vm.name}";
+                  User = "cirrus-vm";
                   Group = "cirrus-vm";
                   WorkingDirectory = "/var/lib/cirrusvm/${vm.name}/";
                   ExecStart = "${pkgs.writeShellScript "start-vm-${vm.name}.sh" ''
@@ -186,6 +186,10 @@ in
                       echo "worker config not found: $SOURCE"
                       exit 1
                     fi
+
+                    echo "STEP set-cache-permissions-pre-start for ${vm.name}"
+                    chown cirrus-vm:cirrus-vm -R ${cacheDir}/*
+                    chmod 700 -R ${cacheDir}/*
 
                     echo "STEP start-vm for ${vm.name}"
                     ${
@@ -267,6 +271,10 @@ in
                       cp -n -R $SOURCE/* $DEST/ --verbose
                     fi
 
+                    echo "STEP set-cache-permissions-after-copy for ${vm.name}"
+                    chown cirrus-vm:cirrus-vm -R ${cacheDir}/*
+                    chmod 700 -R ${cacheDir}/*
+
                     echo "STEP cleaning-up-cache for ${vm.name}"
                     SOURCE="$UPPER"
                     if [ -d "$SOURCE" ]; then
@@ -281,16 +289,12 @@ in
           )
         );
 
-    users.users = builtins.listToAttrs (
-      map (vm: {
-        name = "cirrus-${vm.name}";
-        value = {
-          isNormalUser = true;
-          createHome = false;
-          group = "cirrus-vm";
-        };
-      }) vmList
-    );
+    users.users."cirrus-vm" = {
+      isNormalUser = true;
+      createHome = false;
+      group = "cirrus-vm";
+      uid = 8333; # TODO: document
+    };
     users.groups."cirrus-vm" = { };
 
     systemd.tmpfiles.settings = (
@@ -300,43 +304,43 @@ in
           value = {
             "/var/lib/cirrusvm/${vm.name}/" = {
               d = {
-                user = "cirrus-${vm.name}";
+                user = "cirrus-vm";
                 group = "cirrus-vm";
                 mode = "0700";
               };
             };
             "/var/lib/cirrusvm/${vm.name}/overlay" = {
               d = {
-                user = "cirrus-${vm.name}";
+                user = "cirrus-vm";
                 group = "cirrus-vm";
                 mode = "0700";
               };
             };
             "/var/lib/cirrusvm/${vm.name}/config" = {
               d = {
-                user = "cirrus-${vm.name}";
+                user = "cirrus-vm";
                 group = "cirrus-vm";
                 mode = "0700";
               };
             };
             "/var/lib/cirrusvm/${vm.name}/overlay/upper/" = {
               d = {
-                user = "cirrus-${vm.name}";
+                user = "cirrus-vm";
                 group = "cirrus-vm";
                 mode = "0700";
               };
             };
             "/var/lib/cirrusvm/${vm.name}/overlay/merged/" = {
               d = {
-                user = "cirrus-${vm.name}";
+                user = "cirrus-vm";
                 group = "cirrus-vm";
                 mode = "0700";
               };
             };
             "/var/lib/cirrusvm/${vm.name}/overlay/work/" = {
               d = {
-                user = "root";
-                group = "root";
+                user = "cirrus-vm";
+                group = "cirrus-vm";
                 mode = "0700";
               };
             };
@@ -346,19 +350,19 @@ in
     );
 
     systemd.tmpfiles.rules = [
-      "d '/var/lib/cirrusvm'                    770 'root' 'cirrus-vm' - -"
-      "d '${cacheDir}'                          770 'root' 'cirrus-vm' - -"
-      "d '${cacheDir}/depends'                  770 'root' 'cirrus-vm' - -"
-      "d '${cacheDir}/depends/built'            770 'root' 'cirrus-vm' - -"
-      "d '${cacheDir}/depends/sources'          770 'root' 'cirrus-vm' - -"
-      "d '${cacheDir}/ccache'                   770 'root' 'cirrus-vm' - -"
-      "d '${cacheDir}/prev_releases'            770 'root' 'cirrus-vm' - -"
-      "d '${cacheDir}/docker'                   770 'root' 'cirrus-vm' - -"
-      "d '${cacheDir}/docker/base-imgs'         770 'root' 'cirrus-vm' - -"
-      "d '${cacheDir}/docker/ci-imgs'           770 'root' 'cirrus-vm' - -"
-      "f '${cacheDir}/.this-file-should-exist'  770 'root' 'cirrus-vm' - -"
-      # set 770 on all existing assets
-      "Z '${cacheDir}/*'                        770 'root  'cirrus-vm' - -"
+      "d '/var/lib/cirrusvm'                    700 'cirrus-vm' 'cirrus-vm' - -"
+      "d '${cacheDir}'                          700 'cirrus-vm' 'cirrus-vm' - -"
+      "d '${cacheDir}/depends'                  700 'cirrus-vm' 'cirrus-vm' - -"
+      "d '${cacheDir}/depends/built'            700 'cirrus-vm' 'cirrus-vm' - -"
+      "d '${cacheDir}/depends/sources'          700 'cirrus-vm' 'cirrus-vm' - -"
+      "d '${cacheDir}/ccache'                   700 'cirrus-vm' 'cirrus-vm' - -"
+      "d '${cacheDir}/prev_releases'            700 'cirrus-vm' 'cirrus-vm' - -"
+      "d '${cacheDir}/docker'                   700 'cirrus-vm' 'cirrus-vm' - -"
+      "d '${cacheDir}/docker/base-imgs'         700 'cirrus-vm' 'cirrus-vm' - -"
+      "d '${cacheDir}/docker/ci-imgs'           700 'cirrus-vm' 'cirrus-vm' - -"
+      "f '${cacheDir}/.this-file-should-exist'  700 'cirrus-vm' 'cirrus-vm' - -"
+      # set 700 on all existing assets
+      "Z '${cacheDir}/*'                        700 'cirrus-vm  'cirrus-vm' - -"
     ];
 
     services.prometheus.scrapeConfigs = (

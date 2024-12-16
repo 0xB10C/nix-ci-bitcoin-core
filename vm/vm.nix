@@ -27,9 +27,10 @@ in
     # increase for more p9 file system performance
     msize = (512 * 1024);
     memorySize = (memory * 1024);
-    diskSize = (20 * 1024);
+    #diskSize = (20 * 1024);
     # the nix store in the VM should not be writable
     writableStore = false;
+    qemu.virtioKeyboard = false;
     sharedDirectories = {
       "etc-cirrus" = {
         source = "/var/lib/cirrusvm/${name}/config";
@@ -41,6 +42,16 @@ in
         target = "/cache";
         securityModel = "mapped-xattr";
       };
+    };
+    # use tmpfs as root fs
+    diskImage = null;
+    # for docker.. TODO: doc
+    emptyDiskImages = [ (16 * 1024) ];
+    fileSystems."/home/cirrus-worker/docker" = {
+      autoFormat = true;
+      device = "/dev/vda"; # TODO: doc this name is chosen by QEMU, not here
+      fsType = "ext4";
+      noCheck = true;
     };
     forwardPorts = [
       # forward host port 2001, 2002, .. -> 22, to ssh into the VM

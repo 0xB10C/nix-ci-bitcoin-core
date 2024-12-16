@@ -228,6 +228,7 @@ in
       # Create the home directory of the cirrus-worker.
       "d '${CIRRUS_WORKER_HOME}'                0700 ${CIRRUS_WORKER_USER} ${CIRRUS_WORKER_GROUP} -"
       "d '${CIRRUS_WORKER_HOME}/cirrus'         0700 ${CIRRUS_WORKER_USER} ${CIRRUS_WORKER_GROUP} -"
+      "d '${CIRRUS_WORKER_HOME}/docker'         0700 ${CIRRUS_WORKER_USER} ${CIRRUS_WORKER_GROUP} -"
       # Create the working directory of the CI.
       "d '/ci_container_base'                   0700 ${CIRRUS_WORKER_USER} ${CIRRUS_WORKER_GROUP} -"
       "d '/cache'                               0700 ${CIRRUS_WORKER_USER} ${CIRRUS_WORKER_GROUP} -"
@@ -237,4 +238,12 @@ in
       "L '/ci_container_base/ccache'            -    -           -            -  /cache/ccache"
     ];
   };
+
+  # TODO: remove
+  environment.systemPackages = [
+    pkgs.htop
+    pkgs.atop
+    pkgs.iotop
+    pkgs.btop
+  ];
 }
