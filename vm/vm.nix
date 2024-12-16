@@ -46,7 +46,7 @@ in
     # use tmpfs as root fs
     diskImage = null;
     # for docker.. TODO: doc
-    emptyDiskImages = [ (16 * 1024) ];
+    #emptyDiskImages = [ (16 * 1024) ];
     fileSystems."/home/cirrus-worker/docker" = {
       autoFormat = true;
       device = "/dev/vda"; # TODO: doc this name is chosen by QEMU, not here
@@ -113,7 +113,7 @@ in
       };
     };
   };
-  systemd.user.services.docker.environment.DOCKERD_ROOTLESS_ROOTLESSKIT_DISABLE_HOST_LOOPBACK = "false";
+  #systemd.user.services.docker.environment.DOCKERD_ROOTLESS_ROOTLESSKIT_DISABLE_HOST_LOOPBACK = "false";
 
   services.prometheus = {
     exporters = {

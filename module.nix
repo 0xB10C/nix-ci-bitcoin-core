@@ -131,6 +131,19 @@ in
       }) vmList
     );
 
+    fileSystems = (
+      builtins.listToAttrs (
+        map (vm: {
+          name = "/var/lib/cirrusvm/${vm.name}/tmp";
+          value = {
+            device = "tmpfs";
+            fsType = "tmpfs";
+            options = ["defaults" "mode=0700" "size=16G" "uid=8333" "gid=8333"];
+          };
+        }) vmList
+      )
+    );
+
     systemd.services =
       builtins.trace
         (''
@@ -190,6 +203,13 @@ in
                     echo "STEP set-cache-permissions-pre-start for ${vm.name}"
                     chown cirrus-vm:cirrus-vm -R ${cacheDir}/*
                     chmod 700 -R ${cacheDir}/*
+
+                    # TODO: doc
+                    ${pkgs.qemu_kvm}/bin/qemu-img create -f raw "/var/lib/cirrusvm/${vm.name}/tmp/docker.raw" "16000M"
+
+                    echo "existing opts: $QEMU_OPTS"
+                    export QEMU_OPTS="-drive file=/var/lib/cirrusvm/${vm.name}/tmp/docker.raw,format=raw,aio=io_uring,id=drive-docker,if=none,index=1,werror=report -device virtio-blk-pci,drive=drive-docker
+"
 
                     echo "STEP start-vm for ${vm.name}"
                     ${
@@ -317,6 +337,13 @@ in
               };
             };
             "/var/lib/cirrusvm/${vm.name}/config" = {
+              d = {
+                user = "cirrus-vm";
+                group = "cirrus-vm";
+                mode = "0700";
+              };
+            };
+            "/var/lib/cirrusvm/${vm.name}/tmp" = {
               d = {
                 user = "cirrus-vm";
                 group = "cirrus-vm";

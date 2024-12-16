@@ -237,13 +237,13 @@ in
       "L '/ci_container_base/prev_releases'     -    -           -            -  /cache/prev_releases"
       "L '/ci_container_base/ccache'            -    -           -            -  /cache/ccache"
     ];
-  };
 
-  # TODO: remove
-  environment.systemPackages = [
-    pkgs.htop
-    pkgs.atop
-    pkgs.iotop
-    pkgs.btop
-  ];
+    # TODO: remove
+    environment.systemPackages = [
+      pkgs.htop
+      pkgs.atop
+      pkgs.iotop
+      pkgs.btop
+    ];
+  };
 }
