@@ -27,12 +27,12 @@
                   small = {
                     count = 1;
                     cpu = 4;
-                    memory = 20;
+                    memory = 8;
                   };
                   medium = {
                     count = 1;
                     cpu = 8;
-                    memory = 20;
+                    memory = 16;
                   };
                 };
               };
@@ -102,7 +102,7 @@
                   medium = {
                     count = 4;
                     cpu = 8;
-                    memory = 12;
+                    memory = 16;
                   };
                 };
               };

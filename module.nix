@@ -8,7 +8,17 @@
 
 let
   mkQemu = (import ./vm/vm.nix { inherit pkgs config modulesPath; });
-  cacheDir = "/data/cache";
+  cacheDir = "/cache";
+  persistedCacheDir = "/data/cache";
+
+  # Rootless docker doesn't work on a tmpfs (apt install fails with invalid cross-device link)
+  # So the VMs get a raw disk that is attached to the VM. The disk image resides on a tmpfs on
+  # the host. A size of 16 GB should be plenty the current VM.
+  TMPFS_QEMU_DOCKER_IMAGE_SIZE = 16; # in GB
+
+  # The upper layer of the overlayfs of each VM is stored on a tmpfs.
+  TMPFS_OVERLAYFS_UPPER_SIZE = 5; # in GB
+
   cfg = config.services.cirrus-ephemeral-vm-runner;
   vmList =
     (builtins.genList (i: {
@@ -124,25 +134,68 @@ in
         where = "/var/lib/cirrusvm/${vm.name}/overlay/merged";
         type = "overlay";
         what = "overlay";
-        options = "lowerdir=${cacheDir},upperdir=/var/lib/cirrusvm/${vm.name}/overlay/upper,workdir=/var/lib/cirrusvm/${vm.name}/overlay/work";
+        options = "lowerdir=${cacheDir},upperdir=/var/lib/cirrusvm/${vm.name}/overlay/tmp/upper,workdir=/var/lib/cirrusvm/${vm.name}/overlay/tmp/work";
         partOf = [ "cirrus-${vm.name}.service" ];
         before = [ "cirrus-${vm.name}.service" ];
         wantedBy = [ "multi-user.target" ];
       }) vmList
     );
 
-    fileSystems = (
-      builtins.listToAttrs (
+    fileSystems =
+      (builtins.listToAttrs (
         map (vm: {
+          # Each VM gets a tmpfs to store a raw disk image. This image formatted
+          # as ext4 and used for docker inside the VM. Data on it is ephemeral.
+          # See also: TMPFS_QEMU_DOCKER_IMAGE_SIZE
           name = "/var/lib/cirrusvm/${vm.name}/tmp";
           value = {
             device = "tmpfs";
             fsType = "tmpfs";
-            options = ["defaults" "mode=0700" "size=16G" "uid=8333" "gid=8333"];
+            options = [
+              "defaults"
+              "mode=0700"
+              "size=${toString TMPFS_QEMU_DOCKER_IMAGE_SIZE}G"
+              "uid=8333"
+              "gid=8333"
+            ];
           };
         }) vmList
-      )
-    );
+      ))
+      //
+      (builtins.listToAttrs (
+        map (vm: {
+          # Each VM gets a tmpfs for the upper layer of the VM's overlayfs.
+          # as ext4 and used for docker inside the VM. Data on it is ephemeral.
+          # See also: TMPFS_QEMU_DOCKER_IMAGE_SIZE
+          name = "/var/lib/cirrusvm/${vm.name}/overlay/tmp";
+          value = {
+            device = "tmpfs";
+            fsType = "tmpfs";
+            options = [
+              "defaults"
+              "mode=0700"
+              "size=${toString TMPFS_OVERLAYFS_UPPER_SIZE}G"
+              "uid=8333"
+              "gid=8333"
+            ];
+          };
+        }) vmList
+      ))
+      // {
+        # mount a tmpfs for the cache
+        # TODO: doc why this is 25 GB
+        "/cache" = {
+          device = "tmpfs";
+          fsType = "tmpfs";
+          options = [
+            "defaults"
+            "mode=0700"
+            "size=25G"
+            "uid=8333"
+            "gid=8333"
+          ];
+        };
+      };
 
     systemd.services =
       builtins.trace
@@ -179,15 +232,12 @@ in
 
                     # TODO: this should be clean?
                     echo "STEP start-pre-cleaning-up-upper for ${vm.name}"
-                    SOURCE="/var/lib/cirrusvm/${vm.name}/overlay/upper"
+                    SOURCE="/var/lib/cirrusvm/${vm.name}/overlay/tmp/upper"
                     if [ -d "$SOURCE" ]; then
                       echo "cleaning up files in $SOURCE"
                       rm -rf --verbose $SOURCE/*
                       echo "done cleaning up files in $SOURCE: $(ls $SOURCE)"
                     fi
-
-                    echo "STEP start-pre-cleaning-up-disk-images for ${vm.name}"
-                    rm *.qcow2 || true
 
                     echo "STEP copy-cirrus-worker-config for ${vm.name}"
                     SOURCE="/etc/cirrus/worker.yml"
@@ -204,12 +254,14 @@ in
                     chown cirrus-vm:cirrus-vm -R ${cacheDir}/*
                     chmod 700 -R ${cacheDir}/*
 
-                    # TODO: doc
-                    ${pkgs.qemu_kvm}/bin/qemu-img create -f raw "/var/lib/cirrusvm/${vm.name}/tmp/docker.raw" "16000M"
-
-                    echo "existing opts: $QEMU_OPTS"
-                    export QEMU_OPTS="-drive file=/var/lib/cirrusvm/${vm.name}/tmp/docker.raw,format=raw,aio=io_uring,id=drive-docker,if=none,index=1,werror=report -device virtio-blk-pci,drive=drive-docker
-"
+                    # A disk on a tmpfs for docker. See "TMPFS_QEMU_DOCKER_IMAGE_SIZE"
+                    echo "STEP re-create-raw-docker-disk for ${vm.name}"
+                    DISK="/var/lib/cirrusvm/${vm.name}/tmp/docker.raw"
+                    rm -rf --verbose $DISK
+                    ${pkgs.qemu_kvm}/bin/qemu-img create -f raw "$DISK" "${
+                      toString (TMPFS_QEMU_DOCKER_IMAGE_SIZE * 1000)
+                    }M"
+                    export QEMU_OPTS="-drive file=$DISK,format=raw,aio=io_uring,id=drive-docker,if=none,index=1,werror=report -device virtio-blk-pci,drive=drive-docker"
 
                     echo "STEP start-vm for ${vm.name}"
                     ${
@@ -228,7 +280,7 @@ in
                       }).config.system.build.vm
                     }/bin/run-${vm.name}-vm
 
-                    UPPER="/var/lib/cirrusvm/${vm.name}/overlay/upper"
+                    UPPER="/var/lib/cirrusvm/${vm.name}/overlay/tmp/upper"
 
                     echo "STEP copy-new-ccache-entries for ${vm.name}"
                     SOURCE="$UPPER/ccache"
@@ -302,12 +354,62 @@ in
                       rm -rf $SOURCE/*
                       echo "done cleaning up files in $SOURCE: $(ls $SOURCE)"
                     fi
+
+                    echo "STEP cleaning-up-docker-tmp for ${vm.name}"
+                    SOURCE="/var/lib/cirrusvm/${vm.name}/tmp/"
+                    if [ -d "$SOURCE" ]; then
+                      echo "cleaning up files in $SOURCE"
+                      rm -rf $SOURCE/*
+                      echo "done cleaning up files in $SOURCE: $(ls $SOURCE)"
+                    fi
                   ''}";
                 };
               };
             }) vmList
           )
-        );
+        )
+      // {
+        populate-ram-cache-from-disk = {
+          description = "Copy data from /data/cache (disk) to /cache (RAM) on startup";
+          after = [ "local-fs.target" ];
+          serviceConfig = {
+            Type = "oneshot";
+            ExecStart = "${pkgs.writeShellScript "populate-ram-cache-from-disk.sh" ''
+              rm -rf --verbose ${cacheDir}/*
+              ${pkgs.rsync}/bin/rsync --archive --verbose --human-readable ${persistedCacheDir}/ ${cacheDir}/;
+            ''}";
+            RemainAfterExit = true;
+          };
+        };
+        persist-ram-cache-to-disk = {
+          description = "Copy data from /cache (ram) to /data/cache (disk)";
+          after = [ "local-fs.target" ];
+          serviceConfig = {
+            Type = "oneshot";
+            ExecStart = "${pkgs.writeShellScript "persist-ram-cache-to-disk" ''
+              ${pkgs.rsync}/bin/rsync --archive --verbose --human-readable --delete ${cacheDir}/ ${persistedCacheDir}/;
+            ''}";
+          };
+        };
+      };
+
+    systemd.timers = {
+      "persist-ram-cache-to-disk" = {
+        wantedBy = [ "timers.target" ];
+        timerConfig = {
+          OnBootSec = "5m";
+          OnUnitActiveSec = "5m";
+          Unit = "persist-ram-cache-to-disk.service";
+        };
+      };
+      "populate-ram-cache-from-disk" = {
+        wantedBy = [ "timers.target" ];
+        timerConfig = {
+          OnBootSec = "10s";
+          Unit = "populate-ram-cache-from-disk.service";
+        };
+      };
+    };
 
     users.users."cirrus-vm" = {
       isNormalUser = true;
@@ -350,21 +452,8 @@ in
                 mode = "0700";
               };
             };
-            "/var/lib/cirrusvm/${vm.name}/overlay/upper/" = {
-              d = {
-                user = "cirrus-vm";
-                group = "cirrus-vm";
-                mode = "0700";
-              };
-            };
+            # Note: the tmp dir for work/upper is a tmpfs
             "/var/lib/cirrusvm/${vm.name}/overlay/merged/" = {
-              d = {
-                user = "cirrus-vm";
-                group = "cirrus-vm";
-                mode = "0700";
-              };
-            };
-            "/var/lib/cirrusvm/${vm.name}/overlay/work/" = {
               d = {
                 user = "cirrus-vm";
                 group = "cirrus-vm";
