@@ -6,6 +6,7 @@
 }:
 
 let
+  constants = import ../constants.nix;
 in
 {
   id,
@@ -43,18 +44,23 @@ in
         securityModel = "mapped-xattr";
       };
     };
-    # use tmpfs as root fs
+
+    # use tmpfs for /
     diskImage = null;
-    # for docker.. TODO: doc
-    #emptyDiskImages = [ (16 * 1024) ];
-    fileSystems."/home/cirrus-worker/docker" = {
+
+    # A raw disk is used for CIRRUS_WORKER_WORKDIR/docker which is a file on a
+    # tmpfs. This is a workaround to docker not working directly on a tmpfs.
+    fileSystems."${constants.CIRRUS_WORKER_WORKDIR}/docker" = {
       autoFormat = true;
-      device = "/dev/vda"; # TODO: doc this name is chosen by QEMU, not here
+      # This name was retrieved from the VM via `lsblk`. It might change when
+      # adding more disks. Generally, the first disk is vda, the second vdb, ..
+      device = "/dev/vda";
       fsType = "ext4";
       noCheck = true;
     };
+
     forwardPorts = [
-      # forward host port 2001, 2002, .. -> 22, to ssh into the VM
+      # forward host port 2000, 2001, .. -> 22, to ssh into the VM
       {
         from = "host";
         host.port = (2000 + id);
@@ -85,6 +91,7 @@ in
     group = "journal-reader";
   };
 
+  # TODO: disable this user
   users.users.alice = {
     isNormalUser = true;
     extraGroups = [ "wheel" ];
@@ -106,14 +113,19 @@ in
           "8.8.8.8"
           "1.1.1.1"
         ];
-        data-root = "/home/cirrus-worker/docker/";
+        # Have docker store everything on /dev/vda, which is backed by a raw
+        # disk file on a tmpfs on the host.
+        data-root = "${constants.CIRRUS_WORKER_WORKDIR}/docker/";
         features = {
+          # containered image store is needed to use https://docs.docker.com/build/cache/backends/
           containerd-snapshotter = true;
         };
       };
     };
   };
-  #systemd.user.services.docker.environment.DOCKERD_ROOTLESS_ROOTLESSKIT_DISABLE_HOST_LOOPBACK = "false";
+  # incase the CI docker containers would need to talk to services on the VM, this
+  # would need to be enabled.
+  # systemd.user.services.docker.environment.DOCKERD_ROOTLESS_ROOTLESSKIT_DISABLE_HOST_LOOPBACK = "false";
 
   services.prometheus = {
     exporters = {

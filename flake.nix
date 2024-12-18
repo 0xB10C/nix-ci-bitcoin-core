@@ -95,12 +95,12 @@
                 name = "big";
                 vms = {
                   small = {
-                    count = 5;
+                    count = 1;
                     cpu = 4;
                     memory = 8;
                   };
                   medium = {
-                    count = 4;
+                    count = 1;
                     cpu = 8;
                     memory = 16;
                   };
