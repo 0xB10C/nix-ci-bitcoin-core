@@ -32,6 +32,148 @@ let
       name = "vm${toString (i + cfg.vms.small.count)}medium";
       size = "medium";
     }) cfg.vms.medium.count);
+
+  start-vm-sh =
+    vm:
+    "${pkgs.writeShellScript "start-vm-${vm.name}.sh" ''
+      set -o xtrace
+
+      echo "STEP start-pre-cleaning-up-upper for ${vm.name}"
+      SOURCE="/var/lib/cirrusvm/${vm.name}/overlay/tmp/upper"
+      if [ -d "$SOURCE" ]; then
+        echo "cleaning up files in $SOURCE"
+        rm -rf --verbose $SOURCE/*
+        echo "done cleaning up files in $SOURCE: $(ls $SOURCE)"
+      fi
+
+      echo "STEP copy-cirrus-worker-config for ${vm.name}"
+      SOURCE="/etc/cirrus/worker.yml"
+      DEST="/var/lib/cirrusvm/${vm.name}/config/"
+      if [ -f "$SOURCE" ]; then
+        echo "cleaning up files in $SOURCE"
+        cp $SOURCE $DEST --verbose
+      else
+        echo "worker config not found: $SOURCE"
+        exit 1
+      fi
+
+      echo "STEP set-cache-permissions-pre-start for ${vm.name}"
+      chown cirrus-vm:cirrus-vm -R ${cacheDir}/*
+      chmod 700 -R ${cacheDir}/*
+
+      # A disk on a tmpfs for docker. See "TMPFS_QEMU_DOCKER_IMAGE_SIZE"
+      echo "STEP re-create-raw-docker-disk for ${vm.name}"
+      DISK="${constants.DOCKER_RAW_DISK_LOCATION vm.name}"
+      rm -rf --verbose $DISK
+      ${pkgs.qemu_kvm}/bin/qemu-img create -f raw "$DISK" "${
+        toString (TMPFS_QEMU_DOCKER_IMAGE_SIZE * 1000)
+      }M"
+
+      # Force QEMU to use KVM and do NOT fall back to TCG if KVM
+      # doesn't work.
+      export QEMU_OPTS="-enable-kvm"
+
+      echo "STEP start-vm for ${vm.name} with QEMU_OPTS: $QEMU_OPTS"
+      ${
+        (lib.nixosSystem {
+          system = "x86_64-linux";
+          modules = [
+            (mkQemu {
+              id = vm.id;
+              name = vm.name;
+              size = vm.size;
+              runner_name = cfg.name;
+              memory = cfg.vms."${vm.size}".memory;
+              cpu = cfg.vms."${vm.size}".cpu;
+            })
+          ];
+        }).config.system.build.vm
+      }/bin/run-${vm.name}-vm
+
+      UPPER="/var/lib/cirrusvm/${vm.name}/overlay/tmp/upper"
+
+      echo "STEP copy-new-ccache-entries for ${vm.name}"
+      SOURCE="$UPPER/ccache"
+      DEST="${cacheDir}/ccache"
+      if [ -d "$SOURCE" ]; then
+        echo "removing lock and stats files from $SOURCE"
+        rm -rf $SOURCE/lock
+        rm -rf $SOURCE/*/stats
+        rm -rf $SOURCE/*/*/stats
+        echo "copying non-existing ccache files from $SOURCE to $DEST"
+        cp -n -R $SOURCE/* $DEST/ --verbose
+      fi
+
+      echo "STEP copy-new-built-depends for ${vm.name}"
+      SOURCE="$UPPER/depends/built"
+      DEST="${cacheDir}/depends/built"
+      if [ -d "$SOURCE" ]; then
+        echo "copying newly built depends from $SOURCE to $DEST"
+        cp -n -R $SOURCE/* $DEST/ --verbose
+      fi
+
+      echo "STEP copy-new-depends-sources for ${vm.name}"
+      SOURCE="$UPPER/depends/sources/"
+      DEST="${cacheDir}/depends/sources/"
+      if [ -d "$SOURCE" ]; then
+        echo "copying new depends sources from $SOURCE to $DEST"
+        cp -n -R $SOURCE/* $DEST/ --verbose
+      fi
+
+      echo "STEP copy-new-prev_releases for ${vm.name}"
+      SOURCE="$UPPER/prev_releases/"
+      DEST="${cacheDir}/prev_releases/"
+      if [ -d "$SOURCE" ]; then
+        echo "copying new prev_releases files from $SOURCE to $DEST"
+        cp -n -R $SOURCE/* $DEST/ --verbose
+      fi
+
+      echo "STEP move-docker-ci-image-cache for ${vm.name}"
+      SOURCE="$UPPER/docker/ci-imgs"
+      DEST="${cacheDir}/docker/ci-imgs"
+      if [ -d "$SOURCE" ]; then
+        for path in "$SOURCE"/*; do
+          image=$(basename "$path")
+          if [ -d "$SOURCE/$image" ]; then
+            if [ -e "$SOURCE/$image/index.json" ]; then
+              echo "removing existing cache for: $image"
+              rm -rf "$DEST/$image" --verbose
+              echo "moving docker files from $SOURCE/$image to $DEST"
+              mv "$SOURCE/$image" "$DEST" --verbose
+            fi
+          fi
+        done
+      fi
+
+      echo "STEP copy-docker-base-images for ${vm.name}"
+      SOURCE="$UPPER/docker/base-imgs"
+      DEST="${cacheDir}/docker/base-imgs"
+      if [ -d "$SOURCE" ]; then
+        echo "copying new docker base-imgs from $SOURCE to $DEST"
+        cp -n -R $SOURCE/* $DEST/ --verbose
+      fi
+
+      echo "STEP set-cache-permissions-after-copy for ${vm.name}"
+      chown cirrus-vm:cirrus-vm -R ${cacheDir}/*
+      chmod 700 -R ${cacheDir}/*
+
+      echo "STEP cleaning-up-cache for ${vm.name}"
+      SOURCE="$UPPER"
+      if [ -d "$SOURCE" ]; then
+        echo "cleaning up files in $SOURCE"
+        rm -rf $SOURCE/*
+        echo "done cleaning up files in $SOURCE: $(ls $SOURCE)"
+      fi
+
+      echo "STEP cleaning-up-docker-tmp for ${vm.name}"
+      SOURCE="/var/lib/cirrusvm/${vm.name}/tmp/"
+      if [ -d "$SOURCE" ]; then
+        echo "cleaning up files in $SOURCE"
+        rm -rf $SOURCE/*
+        echo "done cleaning up files in $SOURCE: $(ls $SOURCE)"
+      fi
+    ''}";
+
 in
 {
   imports = [ ./host/monitoring.nix ];
@@ -162,8 +304,7 @@ in
           };
         }) vmList
       ))
-      //
-      (builtins.listToAttrs (
+      // (builtins.listToAttrs (
         map (vm: {
           # Each VM gets a tmpfs for the upper layer of the VM's overlayfs.
           # as ext4 and used for docker inside the VM. Data on it is ephemeral.
@@ -223,146 +364,34 @@ in
                 after = [ "var-lib-cirrusvm-${vm.name}-overlay-merged.mount" ];
                 requires = [ "var-lib-cirrusvm-${vm.name}-overlay-merged.mount" ];
                 wantedBy = [ "multi-user.target" ];
-                serviceConfig = {
+                serviceConfig = constants.defaultHardening // {
+                  ExecStart = start-vm-sh vm;
                   Restart = "always";
                   User = "cirrus-vm";
                   Group = "cirrus-vm";
                   WorkingDirectory = "/var/lib/cirrusvm/${vm.name}/";
-                  ExecStart = "${pkgs.writeShellScript "start-vm-${vm.name}.sh" ''
-                    set -o xtrace
-
-                    # TODO: this should be clean?
-                    echo "STEP start-pre-cleaning-up-upper for ${vm.name}"
-                    SOURCE="/var/lib/cirrusvm/${vm.name}/overlay/tmp/upper"
-                    if [ -d "$SOURCE" ]; then
-                      echo "cleaning up files in $SOURCE"
-                      rm -rf --verbose $SOURCE/*
-                      echo "done cleaning up files in $SOURCE: $(ls $SOURCE)"
-                    fi
-
-                    echo "STEP copy-cirrus-worker-config for ${vm.name}"
-                    SOURCE="/etc/cirrus/worker.yml"
-                    DEST="/var/lib/cirrusvm/${vm.name}/config/"
-                    if [ -f "$SOURCE" ]; then
-                      echo "cleaning up files in $SOURCE"
-                      cp $SOURCE $DEST --verbose
-                    else
-                      echo "worker config not found: $SOURCE"
-                      exit 1
-                    fi
-
-                    echo "STEP set-cache-permissions-pre-start for ${vm.name}"
-                    chown cirrus-vm:cirrus-vm -R ${cacheDir}/*
-                    chmod 700 -R ${cacheDir}/*
-
-                    # A disk on a tmpfs for docker. See "TMPFS_QEMU_DOCKER_IMAGE_SIZE"
-                    echo "STEP re-create-raw-docker-disk for ${vm.name}"
-                    DISK="${constants.DOCKER_RAW_DISK_LOCATION vm.name}"
-                    rm -rf --verbose $DISK
-                    ${pkgs.qemu_kvm}/bin/qemu-img create -f raw "$DISK" "${
-                      toString (TMPFS_QEMU_DOCKER_IMAGE_SIZE * 1000)
-                    }M"
-
-                    echo "STEP start-vm for ${vm.name}"
-                    ${
-                      (lib.nixosSystem {
-                        system = "x86_64-linux";
-                        modules = [
-                          (mkQemu {
-                            id = vm.id;
-                            name = vm.name;
-                            size = vm.size;
-                            runner_name = cfg.name;
-                            memory = cfg.vms."${vm.size}".memory;
-                            cpu = cfg.vms."${vm.size}".cpu;
-                          })
-                        ];
-                      }).config.system.build.vm
-                    }/bin/run-${vm.name}-vm
-
-                    UPPER="/var/lib/cirrusvm/${vm.name}/overlay/tmp/upper"
-
-                    echo "STEP copy-new-ccache-entries for ${vm.name}"
-                    SOURCE="$UPPER/ccache"
-                    DEST="${cacheDir}/ccache"
-                    if [ -d "$SOURCE" ]; then
-                      echo "removing lock and stats files from $SOURCE"
-                      rm -rf $SOURCE/lock
-                      rm -rf $SOURCE/*/stats
-                      rm -rf $SOURCE/*/*/stats
-                      echo "copying non-existing ccache files from $SOURCE to $DEST"
-                      cp -n -R $SOURCE/* $DEST/ --verbose
-                    fi
-
-                    echo "STEP copy-new-built-depends for ${vm.name}"
-                    SOURCE="$UPPER/depends/built"
-                    DEST="${cacheDir}/depends/built"
-                    if [ -d "$SOURCE" ]; then
-                      echo "copying newly built depends from $SOURCE to $DEST"
-                      cp -n -R $SOURCE/* $DEST/ --verbose
-                    fi
-
-                    echo "STEP copy-new-depends-sources for ${vm.name}"
-                    SOURCE="$UPPER/depends/sources/"
-                    DEST="${cacheDir}/depends/sources/"
-                    if [ -d "$SOURCE" ]; then
-                      echo "copying new depends sources from $SOURCE to $DEST"
-                      cp -n -R $SOURCE/* $DEST/ --verbose
-                    fi
-
-                    echo "STEP copy-new-prev_releases for ${vm.name}"
-                    SOURCE="$UPPER/prev_releases/"
-                    DEST="${cacheDir}/prev_releases/"
-                    if [ -d "$SOURCE" ]; then
-                      echo "copying new prev_releases files from $SOURCE to $DEST"
-                      cp -n -R $SOURCE/* $DEST/ --verbose
-                    fi
-
-                    echo "STEP move-docker-ci-image-cache for ${vm.name}"
-                    SOURCE="$UPPER/docker/ci-imgs"
-                    DEST="${cacheDir}/docker/ci-imgs"
-                    if [ -d "$SOURCE" ]; then
-                      for path in "$SOURCE"/*; do
-                        image=$(basename "$path")
-                        if [ -d "$SOURCE/$image" ]; then
-                          if [ -e "$SOURCE/$image/index.json" ]; then
-                            echo "removing existing cache for: $image"
-                            rm -rf "$DEST/$image" --verbose
-                            echo "moving docker files from $SOURCE/$image to $DEST"
-                            mv "$SOURCE/$image" "$DEST" --verbose
-                          fi
-                        fi
-                      done
-                    fi
-
-                    echo "STEP copy-docker-base-images for ${vm.name}"
-                    SOURCE="$UPPER/docker/base-imgs"
-                    DEST="${cacheDir}/docker/base-imgs"
-                    if [ -d "$SOURCE" ]; then
-                      echo "copying new docker base-imgs from $SOURCE to $DEST"
-                      cp -n -R $SOURCE/* $DEST/ --verbose
-                    fi
-
-                    echo "STEP set-cache-permissions-after-copy for ${vm.name}"
-                    chown cirrus-vm:cirrus-vm -R ${cacheDir}/*
-                    chmod 700 -R ${cacheDir}/*
-
-                    echo "STEP cleaning-up-cache for ${vm.name}"
-                    SOURCE="$UPPER"
-                    if [ -d "$SOURCE" ]; then
-                      echo "cleaning up files in $SOURCE"
-                      rm -rf $SOURCE/*
-                      echo "done cleaning up files in $SOURCE: $(ls $SOURCE)"
-                    fi
-
-                    echo "STEP cleaning-up-docker-tmp for ${vm.name}"
-                    SOURCE="/var/lib/cirrusvm/${vm.name}/tmp/"
-                    if [ -d "$SOURCE" ]; then
-                      echo "cleaning up files in $SOURCE"
-                      rm -rf $SOURCE/*
-                      echo "done cleaning up files in $SOURCE: $(ls $SOURCE)"
-                    fi
-                  ''}";
+                  ReadWriteDirectories = [
+                    # Allow the VM service to read & write /cache. This is only
+                    # used when coping the VM cache to the shared cache.
+                    "/cache"
+                    # Allow the VM service to read & write it's WorkingDirectory
+                    "/var/lib/cirrusvm/${vm.name}/"
+                  ];
+                  # Deny access to some local addresses.
+                  IPAddressDeny = [
+                    # we can't forbid localhost here as the port forwarding
+                    # for the node exporter (and ssh, if enabled) would break.
+                    "link-local"
+                    "multicast"
+                  ];
+                  # Disable this, otherwise qemu-kvm fails to start with:
+                  # Could not access KVM kernel module: No such file or directory
+                  # qemu-kvm: failed to initialize kvm: No such file or directory
+                  PrivateDevices = false;
+                  # MemoryDenyWriteExecute=true prevents creating memory regions
+                  # that are both writable and executable, which JIT compilation
+                  # in QEMU requires.
+                  MemoryDenyWriteExecute = false;
                 };
               };
             }) vmList

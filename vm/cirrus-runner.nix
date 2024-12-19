@@ -144,9 +144,7 @@ in
         "network-online.target"
         "setup-cirrus-worker-config.service"
       ];
-      wants = [
-        "network-online.target"
-      ];
+      wants = [ "network-online.target" ];
       wantedBy = [ "multi-user.target" ];
       serviceConfig = constants.defaultHardening // {
         ExecStartPre = [
@@ -178,17 +176,21 @@ in
         # This overwrites a defaultHardening setting.
         ProtectHome = false;
         ReadWriteDirectories = [
-          # Allow the cirrus-worker service to read:write to CIRRUS_WORKER_WORKDIR/cirrus. It
+          # Allow the cirrus-worker service to read & write to CIRRUS_WORKER_WORKDIR/cirrus. It
           # will remove the worker.yml config there once it has started up.
           "${constants.CIRRUS_WORKER_WORKDIR}/"
-          # Allow the cirrus-worker service to read:write to /cache.
+          # Allow the cirrus-worker service to read & write /cache.
           "/cache"
         ];
         # Deny the cirrus worker service to connect to local IP addresses. This
         # overwrites the "any" defaultHardening setting. The service needs to
         # connect to different IP addresses depending on the CI job, we can't
         # limit them here.
-        IPAddressDeny = "localhost,link-local,multicast";
+        IPAddressDeny = [
+          "localhost"
+          "link-local"
+          "multicast"
+        ];
       };
       environment = {
         PATH = lib.mkForce (
