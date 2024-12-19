@@ -14,7 +14,7 @@ in
   size,
   runner_name,
   memory,
-  cpu
+  cpu,
 }:
 {
   imports = [
@@ -25,19 +25,29 @@ in
   virtualisation = {
     cores = cpu;
     graphics = false;
-    # increase for more p9 file system performance
+    # increased for more p9 file system performance
     msize = (512 * 1024);
     memorySize = (memory * 1024);
-    #diskSize = (20 * 1024);
     # the nix store in the VM should not be writable
     writableStore = false;
     qemu.virtioKeyboard = false;
-    sharedDirectories = {
+
+    # we overwrite with mkForce here to make sure no other directores are shared
+    # By default, NixOS includes the shared and xchg directories.
+    sharedDirectories = pkgs.lib.mkForce {
+      # Mount the NixOS store as read-only
+      nix-store = {
+        source = builtins.storeDir;
+        target = "/nix/.ro-store";
+        securityModel = "none";
+      };
+      # A share for the cirrus worker config
       "etc-cirrus" = {
         source = "/var/lib/cirrusvm/${name}/config";
         target = "/etc/cirrus";
         securityModel = "mapped-xattr";
       };
+      # A share to an overlayfs of the cache
       "cache" = {
         source = "/var/lib/cirrusvm/${name}/overlay/merged";
         target = "/cache";
@@ -47,6 +57,19 @@ in
 
     # use tmpfs for /
     diskImage = null;
+
+    qemu.drives = [
+      {
+        name = "docker";
+        file = constants.DOCKER_RAW_DISK_LOCATION name;
+        driveExtraOpts = {
+          format = "raw";
+          aio = "io_uring";
+          werror = "report";
+          # id, if, index are set by NixOS: https://github.com/NixOS/nixpkgs/blob/394571358ce82dff7411395829aa6a3aad45b907/nixos/modules/virtualisation/qemu-vm.nix#L82-L87
+        };
+      }
+    ];
 
     # A raw disk is used for CIRRUS_WORKER_WORKDIR/docker which is a file on a
     # tmpfs. This is a workaround to docker not working directly on a tmpfs.
@@ -124,7 +147,8 @@ in
     };
   };
   # incase the CI docker containers would need to talk to services on the VM, this
-  # would need to be enabled.
+  # would need to be enabled. This is kept as dead comment in case it becomes relevant
+  # again, but can be removed at some point.
   # systemd.user.services.docker.environment.DOCKERD_ROOTLESS_ROOTLESSKIT_DISABLE_HOST_LOOPBACK = "false";
 
   services.prometheus = {
@@ -133,6 +157,9 @@ in
         enable = true;
         enabledCollectors = [ "systemd" ];
         port = 9002;
+        # Otherwise the collector complains about the /nix/store being duplicate
+        # We don't need the VM side of it, as it's mounted from the host.
+        extraFlags = [ "--collector.filesystem.ignored-mount-points='^/nix/store$'" ];
       };
     };
   };

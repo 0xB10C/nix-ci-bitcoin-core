@@ -36,6 +36,8 @@
     SystemCallArchitectures = "native";
   };
 
+  DOCKER_RAW_DISK_LOCATION = name: "/var/lib/cirrusvm/${name}/tmp/docker.raw";
+
   CIRRUS_WORKER_WORKDIR = "/var/lib/cirrus-worker";
 
 }

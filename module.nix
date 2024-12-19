@@ -10,6 +10,7 @@ let
   mkQemu = (import ./vm/vm.nix { inherit pkgs config modulesPath; });
   cacheDir = "/cache";
   persistedCacheDir = "/data/cache";
+  constants = import ./constants.nix;
 
   # Rootless docker doesn't work on a tmpfs (apt install fails with invalid cross-device link)
   # So the VMs get a raw disk that is attached to the VM. The disk image resides on a tmpfs on
@@ -256,12 +257,11 @@ in
 
                     # A disk on a tmpfs for docker. See "TMPFS_QEMU_DOCKER_IMAGE_SIZE"
                     echo "STEP re-create-raw-docker-disk for ${vm.name}"
-                    DISK="/var/lib/cirrusvm/${vm.name}/tmp/docker.raw"
+                    DISK="${constants.DOCKER_RAW_DISK_LOCATION vm.name}"
                     rm -rf --verbose $DISK
                     ${pkgs.qemu_kvm}/bin/qemu-img create -f raw "$DISK" "${
                       toString (TMPFS_QEMU_DOCKER_IMAGE_SIZE * 1000)
                     }M"
-                    export QEMU_OPTS="-drive file=$DISK,format=raw,aio=io_uring,id=drive-docker,if=none,index=1,werror=report -device virtio-blk-pci,drive=drive-docker"
 
                     echo "STEP start-vm for ${vm.name}"
                     ${
