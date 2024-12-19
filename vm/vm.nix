@@ -19,6 +19,10 @@ in
 {
   imports = [
     (modulesPath + "/virtualisation/qemu-vm.nix")
+    # to further trim down on size of the VM:
+    (modulesPath + "/profiles/minimal.nix")
+    (modulesPath + "/profiles/headless.nix")
+    (modulesPath + "/profiles/qemu-guest.nix")
     ./cirrus-runner.nix
   ];
 
@@ -98,6 +102,39 @@ in
     ];
   };
 
+  # optimizations from https://github.com/astro/microvm.nix/blob/main/nixos-modules/microvm/optimization.nix
+
+  # Use systemd initrd for startup speed.
+  boot.initrd.systemd.enable = true;
+  # Exclude switch-to-configuration.pl from toplevel.
+  system.switch.enable = false;
+  # Also disable other tools that aren't needed:
+  system.tools.nixos-build-vms.enable = false;
+  system.tools.nixos-enter.enable = false;
+  system.tools.nixos-generate-config.enable = false;
+  system.tools.nixos-install.enable = false;
+  system.tools.nixos-option.enable = false;
+  system.tools.nixos-rebuild.enable = false;
+  system.tools.nixos-version.enable = false;
+  # The docs are pretty chonky
+  documentation.enable = false;
+  documentation.man.enable = false;
+  documentation.doc.enable = false;
+  documentation.nixos.enable = false;
+  documentation.info.enable = false;
+  nix.enable = false;
+
+  services.udev.enable = false;
+  services.lvm.enable = false;
+  security.sudo.enable = false;
+  # hand picked from "/profiles/perlless.nix"
+  system.etc.overlay.enable = true;
+  system.disableInstallerTools = true;
+  programs.less.lessopen = null;
+  programs.command-not-found.enable = false;
+  boot.enableContainers = false;
+  boot.loader.grub.enable = false;
+
   networking.hostName = name;
   services.sshd.enable = true;
 
@@ -113,13 +150,8 @@ in
     isSystemUser = true;
     group = "journal-reader";
   };
-
-  # TODO: disable this user
-  users.users.alice = {
-    isNormalUser = true;
-    extraGroups = [ "wheel" ];
-    initialPassword = "test";
-  };
+  # with profiles/headless.nix, we still want to have ttyS0
+  systemd.services."serial-getty@ttyS0".enable = true;
 
   services.cirrus-runner = {
     enable = true;
